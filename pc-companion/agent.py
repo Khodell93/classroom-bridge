@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import ctypes
 import json
 import os
 import pathlib
@@ -38,6 +39,7 @@ WINDOWS_HOTKEYS = {
     ("ctrl", "right"), ("ctrl", "up"), ("ctrl", "down"), ("ctrl", "shift", "left"),
     ("ctrl", "shift", "right"), ("shift", "tab"), ("alt", "tab"), ("win", "e"),
     ("win", "left"), ("win", "right"), ("win", "up"), ("win", "down"),
+    ("win", "tab"), ("win", "d"),
 }
 MAC_HOTKEYS = {
     ("command", "a"), ("command", "c"), ("command", "v"), ("command", "x"), ("command", "z"),
@@ -46,6 +48,36 @@ MAC_HOTKEYS = {
     ("command", "shift", "left"), ("command", "shift", "right"), ("shift", "tab"),
     ("alt", "tab"), ("command", "tab"), ("command", "left"),
 }
+# Windows shortcuts the iPad gestures send, and their Mac equivalents (Mission Control, show desktop).
+MAC_GESTURE_HOTKEYS = {("win", "tab"): ("ctrl", "up"), ("win", "d"): ("command", "f3")}
+_scroll_remainder = [0.0, 0.0]
+
+
+def scroll_desktop(dx, dy):
+    """Scrolls by a finger movement in desktop pixels (content follows the finger, like a touchscreen)."""
+    if sys.platform == "win32":
+        # Windows wheel units: 120 is one notch (about 100 px in most apps); modern apps scroll smoothly by less.
+        _scroll_remainder[0] += dy * 1.2
+        _scroll_remainder[1] += -dx * 1.2
+        vertical, horizontal = int(_scroll_remainder[0]), int(_scroll_remainder[1])
+        _scroll_remainder[0] -= vertical
+        _scroll_remainder[1] -= horizontal
+        user32 = ctypes.windll.user32
+        if vertical:
+            user32.mouse_event(0x0800, 0, 0, ctypes.c_uint32(vertical & 0xFFFFFFFF).value, 0)
+        if horizontal:
+            user32.mouse_event(0x1000, 0, 0, ctypes.c_uint32(horizontal & 0xFFFFFFFF).value, 0)
+    elif sys.platform == "darwin":
+        import Quartz
+
+        event = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitPixel, 2, int(round(dy)), int(round(dx)))
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+    else:
+        _scroll_remainder[0] += dy / 40
+        clicks = int(_scroll_remainder[0])
+        _scroll_remainder[0] -= clicks
+        if clicks:
+            pyautogui.scroll(clicks)
 
 
 def settings_dir():
@@ -148,6 +180,10 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.mouseUp()
     elif kind == "click":
         pyautogui.click()
+    elif kind == "right-click":
+        pyautogui.click(button="right")
+    elif kind == "scroll":
+        scroll_desktop(max(-4000.0, min(4000.0, float(command.get("dx", 0)))), max(-4000.0, min(4000.0, float(command.get("dy", 0)))))
     elif kind == "key" and command.get("key") in ALLOWED_KEYS:
         pyautogui.press(command["key"])
     elif kind == "hotkey":
@@ -155,7 +191,9 @@ def perform_control(command, screen_width, screen_height):
         if isinstance(keys, list):
             if sys.platform == "darwin":
                 mapped = tuple("command" if key == "win" else key for key in keys)
-                if tuple(keys) == ("win", "e"):
+                if tuple(keys) in MAC_GESTURE_HOTKEYS:
+                    pyautogui.hotkey(*MAC_GESTURE_HOTKEYS[tuple(keys)])
+                elif tuple(keys) == ("win", "e"):
                     subprocess.Popen(["open", "-a", "Finder"])
                 elif mapped in MAC_HOTKEYS:
                     pyautogui.hotkey(*mapped)
@@ -267,9 +305,9 @@ def send_json(channel, message):
 def handle_message(raw, width, height, channel=None, on_ink=None, scene=None):
     try:
         command = json.loads(raw)
-        if command.get("type") == "ink-live":
+        if command.get("type") in ("ink-live", "shape-live", "laser"):
             if scene:
-                scene.ink_live(command)
+                {"ink-live": scene.ink_live, "shape-live": scene.shape_live, "laser": scene.laser_points}[command["type"]](command)
         elif command.get("type") == "clipboard-read":
             if channel and channel.readyState == "open":
                 try:

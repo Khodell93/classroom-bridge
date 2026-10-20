@@ -43,22 +43,57 @@
             <div id="focus-ring" class="focus-ring" hidden></div>
             <div id="vis-flash" class="vis-flash" hidden></div>
             <div id="vis-banner" class="vis-banner" hidden></div>
+            <textarea id="vis-text-editor" class="vis-text-editor" rows="1" placeholder="Type, then Return" aria-label="Text to add" hidden></textarea>
+
+            <div id="vis-crop-layer" class="vis-crop-layer" hidden>
+              <svg id="vis-crop-outline" class="vis-crop-outline" aria-hidden="true"><polygon points=""></polygon></svg>
+              <span class="vis-crop-handle" data-corner="0" aria-label="Top-left corner"></span>
+              <span class="vis-crop-handle" data-corner="1" aria-label="Top-right corner"></span>
+              <span class="vis-crop-handle" data-corner="2" aria-label="Bottom-right corner"></span>
+              <span class="vis-crop-handle" data-corner="3" aria-label="Bottom-left corner"></span>
+              <div class="vis-panel vis-crop-actions">
+                <span>Drag the corners onto the page's corners</span>
+                <button id="vis-crop-cancel" class="vis-action">Cancel</button>
+                <button id="vis-crop-apply" class="vis-action primary-action">Crop &amp; straighten</button>
+              </div>
+            </div>
 
             <aside id="vis-tools" class="vis-panel vis-tools" aria-label="Annotation tools" hidden>
               <button class="vis-button vis-tool selected" data-tool="pen" aria-label="Pen" title="Pen">✎</button>
               <button class="vis-button vis-tool" data-tool="highlighter" aria-label="Highlighter" title="Highlighter">▌</button>
-              <button class="vis-button vis-tool" data-tool="eraser" aria-label="Eraser — removes whole strokes" title="Eraser">⌫</button>
+              <button id="vis-shape-button" class="vis-button vis-tool" data-tool="shape" aria-label="Shapes" title="Shapes">↗</button>
+              <button class="vis-button vis-tool vis-text-tool" data-tool="text" aria-label="Text" title="Text">T</button>
+              <button id="vis-stamp-button" class="vis-button vis-tool" data-tool="stamp" aria-label="Marking stamps" title="Stamps">✓</button>
+              <button class="vis-button vis-tool" data-tool="laser" aria-label="Laser pointer" title="Laser pointer">✦</button>
+              <button class="vis-button vis-tool" data-tool="eraser" aria-label="Eraser — removes whole items" title="Eraser">⌫</button>
               <span class="vis-divider"></span>
               <div id="vis-colours" class="vis-colours"></div>
               <span class="vis-divider"></span>
-              <button class="vis-button vis-size" data-size="0" aria-label="Thin"><i style="--dot:5px"></i></button>
-              <button class="vis-button vis-size selected" data-size="1" aria-label="Medium"><i style="--dot:9px"></i></button>
-              <button class="vis-button vis-size" data-size="2" aria-label="Thick"><i style="--dot:15px"></i></button>
+              <button id="vis-size-button" class="vis-button" aria-label="Size" title="Size"><i></i></button>
               <span class="vis-divider"></span>
               <button id="vis-undo" class="vis-button" aria-label="Undo" title="Undo">↶</button>
               <button id="vis-redo" class="vis-button" aria-label="Redo" title="Redo">↷</button>
               <button id="vis-clear" class="vis-button" aria-label="Clear annotations on this page" title="Clear page">✕</button>
             </aside>
+            <div id="vis-shape-menu" class="vis-panel vis-flyout vis-tool-flyout" hidden>
+              <button class="vis-button" data-shape="line" aria-label="Line">╱</button>
+              <button class="vis-button" data-shape="arrow" aria-label="Arrow">↗</button>
+              <button class="vis-button" data-shape="rect" aria-label="Rectangle">▭</button>
+              <button class="vis-button" data-shape="ellipse" aria-label="Circle or ellipse">◯</button>
+              <button class="vis-button" data-shape="box" aria-label="Highlight box">▮</button>
+            </div>
+            <div id="vis-stamp-menu" class="vis-panel vis-flyout vis-tool-flyout" hidden>
+              <button class="vis-button" data-stamp="tick" aria-label="Tick">✓</button>
+              <button class="vis-button" data-stamp="cross" aria-label="Cross">✗</button>
+              <button class="vis-button" data-stamp="star" aria-label="Star">★</button>
+              <button class="vis-button" data-stamp="question" aria-label="Question mark">?</button>
+              <button class="vis-button" data-stamp="number" aria-label="Numbered label (counts up)">①</button>
+            </div>
+            <div id="vis-size-menu" class="vis-panel vis-flyout vis-tool-flyout" hidden>
+              <button class="vis-button" data-size="0" aria-label="Small"><i style="--dot:5px"></i></button>
+              <button class="vis-button" data-size="1" aria-label="Medium"><i style="--dot:9px"></i></button>
+              <button class="vis-button" data-size="2" aria-label="Large"><i style="--dot:15px"></i></button>
+            </div>
 
             <aside id="vis-side" class="vis-side" aria-label="Camera" hidden>
               <div id="camera-controls" class="vis-panel vis-side-group" hidden>
@@ -68,23 +103,80 @@
               </div>
               <button id="vis-shutter" class="vis-shutter" aria-label="Capture photo"></button>
               <div class="vis-panel vis-side-group">
-                <button id="vis-rotate" class="vis-button" aria-label="Rotate 90°" title="Rotate">⤾</button>
+                <button id="vis-rotate" class="vis-button vis-showing-only" aria-label="Rotate 90°" title="Rotate">⤾</button>
+                <button id="vis-adjust" class="vis-button vis-showing-only vis-labelled" aria-label="Brightness and contrast" title="Adjust">☀<small>Adjust</small></button>
+                <button id="vis-spotlight" class="vis-button vis-showing-only vis-labelled" aria-label="Spotlight" title="Spotlight">◎<small>Spot</small></button>
+                <button id="vis-curtain" class="vis-button vis-showing-only vis-labelled" aria-label="Curtain" title="Curtain">▤<small>Curtain</small></button>
+                <button id="vis-record" class="vis-button vis-labelled" aria-label="Record video" title="Record">●<small>Rec</small></button>
                 <button id="vis-hold" class="vis-button vis-labelled" aria-label="Hold: freeze the projector while you move things" title="Hold">❚❚<small>Hold</small></button>
                 <button id="vis-blank" class="vis-button vis-labelled" aria-label="Blank the projector" title="Blank">■<small>Blank</small></button>
               </div>
             </aside>
-
-            <div id="vis-photo-actions" class="vis-panel vis-photo-actions" hidden>
-              <button id="vis-save" class="vis-action">⇪ Save to iPad</button>
-              <button id="vis-save-pc" class="vis-action">▣ Save to PC</button>
-              <button id="vis-delete" class="vis-action danger">Delete</button>
+            <div id="vis-adjust-panel" class="vis-panel vis-flyout vis-adjust-panel" hidden>
+              <label>Brightness<input id="vis-brightness" type="range" min="-0.6" max="1" step="0.05" value="0"></label>
+              <label>Contrast<input id="vis-contrast" type="range" min="-0.6" max="1.5" step="0.05" value="0"></label>
+              <label class="vis-check"><input id="vis-mono" type="checkbox"> Black &amp; white</label>
+              <div class="vis-adjust-presets">
+                <button id="vis-adjust-document" class="vis-action">Document</button>
+                <button id="vis-adjust-bw" class="vis-action">B&amp;W text</button>
+                <button id="vis-adjust-reset" class="vis-action">Reset</button>
+              </div>
             </div>
 
-            <nav id="vis-filmstrip" class="vis-filmstrip" aria-label="Photos from this lesson" hidden>
+            <div id="vis-top" class="vis-panel vis-top" hidden>
+              <button id="vis-lesson" class="vis-action vis-lesson-button">▤ Lesson</button>
+              <button id="vis-timelapse-stop" class="vis-action warn" hidden></button>
+              <button id="vis-reset-zoom" class="vis-action" hidden>1×</button>
+              <button id="vis-compare" class="vis-action" hidden>◫ Compare</button>
+              <button id="vis-compare-show" class="vis-action primary-action" hidden>Show side by side</button>
+              <button id="vis-compare-cancel" class="vis-action" hidden>Cancel</button>
+              <button id="vis-crop" class="vis-action vis-photo-only">⬚ Crop</button>
+              <button id="vis-save" class="vis-action vis-photo-only">⇪ Save to iPad</button>
+              <button id="vis-save-pc" class="vis-action vis-photo-only">▣ Save to PC</button>
+              <button id="vis-delete" class="vis-action danger vis-photo-only">Delete</button>
+            </div>
+            <div id="vis-lesson-menu" class="vis-panel vis-flyout vis-lesson-menu" hidden>
+              <div class="vis-lesson-actions">
+                <button id="vis-lesson-new" class="vis-action primary-action">＋ New lesson</button>
+                <button id="vis-lesson-rename" class="vis-action">Rename</button>
+                <button id="vis-lesson-pdf" class="vis-action">Export PDF</button>
+                <button id="vis-lesson-delete" class="vis-action danger">Delete</button>
+              </div>
+              <div id="vis-lesson-list" class="vis-lesson-list"></div>
+            </div>
+
+            <nav id="vis-filmstrip" class="vis-filmstrip" aria-label="Photos in this lesson" hidden>
               <div class="vis-film-list"></div>
-              <label class="vis-film-tile vis-film-add" aria-label="Add a photo from the iPad">＋<input class="photo-picker" type="file" accept="image/*" multiple></label>
-              <button id="vis-clear-all" class="vis-film-clear" aria-label="Delete all photos">Clear all</button>
+              <button class="vis-film-tile vis-film-add" aria-label="Add a photo, whiteboard page or time-lapse">＋</button>
+              <button id="vis-clear-all" class="vis-film-clear" aria-label="Delete all photos in this lesson">Clear all</button>
             </nav>
+            <div id="vis-add-menu" class="vis-panel vis-flyout vis-add-menu" hidden>
+              <label class="vis-menu-item">▧ Photo from iPad<input class="photo-picker" type="file" accept="image/*" multiple></label>
+              <p>Whiteboard page</p>
+              <div class="vis-menu-grid">
+                <button class="vis-action" data-whiteboard="plain">Blank</button>
+                <button class="vis-action" data-whiteboard="lined">Lined</button>
+                <button class="vis-action" data-whiteboard="squared">Squared</button>
+                <button class="vis-action" data-whiteboard="dotted">Dotted</button>
+                <button class="vis-action" data-whiteboard="music">Music staff</button>
+                <button class="vis-action" data-whiteboard="chalk">Chalkboard</button>
+              </div>
+              <p>Time-lapse — take a photo every</p>
+              <div class="vis-menu-grid">
+                <button class="vis-action" data-timelapse="5">5 s</button>
+                <button class="vis-action" data-timelapse="10">10 s</button>
+                <button class="vis-action" data-timelapse="30">30 s</button>
+                <button class="vis-action" data-timelapse="60">1 min</button>
+              </div>
+            </div>
+            <div id="vis-result" class="vis-panel vis-result" role="dialog" hidden>
+              <strong id="vis-result-title">Ready</strong>
+              <div>
+                <button id="vis-result-ipad" class="vis-action primary-action">⇪ Save to iPad</button>
+                <button id="vis-result-pc" class="vis-action">▣ Save to PC</button>
+                <button id="vis-result-close" class="vis-action">Close</button>
+              </div>
+            </div>
             <div id="vis-toast" class="vis-toast" role="status" hidden></div>
             <div id="camera-placeholder" class="stage-placeholder">
               <span class="placeholder-icon">◉</span>
@@ -214,7 +306,9 @@
       </div>
     </main>
     <input id="remote-typing-input" class="remote-typing-input" aria-label="Type on the connected computer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
+    <script src="/vis-items.js" defer></script>
     <script src="/visualiser.js" defer></script>
+    <script src="/vis-extras.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

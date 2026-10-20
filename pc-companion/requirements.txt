@@ -8,3 +8,4 @@ PyAutoGUI>=0.9.54
 pyperclip>=1.9
 websockets>=13,<16
 pyobjc-framework-Cocoa>=10; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"
