@@ -1,5 +1,6 @@
 aiortc>=1.9,<2
 av>=12
+certifi>=2024.2.2
 mss>=9
 numpy>=1.26
 Pillow>=10

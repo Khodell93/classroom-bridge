@@ -32,7 +32,7 @@ jobs:
           pyinstaller --noconfirm --clean --onefile --windowed
           --name ClassroomBridge
           --collect-all aiortc --collect-all av --collect-all aioice
-          --collect-all pylibsrtp --collect-all websockets
+          --collect-all pylibsrtp --collect-all websockets --collect-data certifi
           companion_ui.py
 
       - name: Prepare download package

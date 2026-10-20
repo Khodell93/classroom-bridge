@@ -2,10 +2,12 @@ import argparse
 import asyncio
 import json
 import secrets
+import ssl
 import subprocess
 import sys
 import threading
 
+import certifi
 import mss
 import numpy as np
 import pyautogui
@@ -105,7 +107,8 @@ async def run(signal_url, room, notify=print, stop_event=None):
     offered = False
     pending_candidates = []
     try:
-        async with websockets.connect(pair_url, max_size=48_000, ping_interval=20) as socket:
+        tls_context = ssl.create_default_context(cafile=certifi.where())
+        async with websockets.connect(pair_url, max_size=48_000, ping_interval=20, ssl=tls_context) as socket:
             notify("Ready — enter the pairing code on the iPad.")
             while not stop_event.is_set():
                 try:
