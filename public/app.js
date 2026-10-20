@@ -33,6 +33,9 @@ let sessionActive = false;
 let wakeLockSentinel;
 let reconnectTimer;
 let wasBackgrounded = false;
+let tapToTypeEnabled = false;
+let mousePointerStart;
+let mousePointerMoved = false;
 
 function setStatus(label, connected = false) {
   statusEl.querySelector("span").textContent = label;
@@ -296,6 +299,7 @@ async function requestScreenWakeLock() {
   } catch {
     wakeLockSentinel = undefined;
     statusEl.title = "iPadOS may dim or lock the screen. Keep Classroom Bridge open to maintain the connection.";
+    if (peerConnection?.connectionState === "connected") setStatus("PC connected · keep screen awake", true);
   }
 }
 
@@ -442,6 +446,12 @@ document.querySelector("#clear-button").addEventListener("click", clearInk);
 document.querySelector("#previous-slide").addEventListener("click", () => sendControl({ type: "key", key: "left" }));
 document.querySelector("#next-slide").addEventListener("click", () => sendControl({ type: "key", key: "right" }));
 document.querySelector("#open-explorer").addEventListener("click", () => handleShortcut("win+e"));
+document.querySelector("#tap-to-type").addEventListener("click", event => {
+  tapToTypeEnabled = !tapToTypeEnabled;
+  event.currentTarget.setAttribute("aria-pressed", String(tapToTypeEnabled));
+  event.currentTarget.classList.toggle("selected", tapToTypeEnabled);
+  event.currentTarget.textContent = `Tap screen to type: ${tapToTypeEnabled ? "On" : "Off"}`;
+});
 document.querySelector("#send-text").addEventListener("click", sendTypedText);
 document.querySelector("#pc-text").addEventListener("keydown", event => { if (event.key === "Enter") sendTypedText(); });
 document.querySelectorAll(".modifier-key").forEach(button => button.addEventListener("click", () => {
@@ -535,6 +545,8 @@ pcStage.addEventListener("pointerdown", event => {
   if (event.pointerType === "pen") beginInk(pcInk, event);
   else {
     const point = desktopPoint(event);
+    mousePointerStart = { x: event.clientX, y: event.clientY };
+    mousePointerMoved = false;
     sendControl({ type: "move", ...point });
     sendControl({ type: "mouse-down" });
     event.preventDefault();
@@ -545,6 +557,7 @@ pcStage.addEventListener("pointermove", event => {
   if (currentMode !== "pc") return;
   if (drawing && event.pointerType === "pen") moveInk(pcInk, event);
   else if (event.pointerType !== "pen") {
+    if (mousePointerStart && Math.hypot(event.clientX - mousePointerStart.x, event.clientY - mousePointerStart.y) > 10) mousePointerMoved = true;
     const point = desktopPoint(event);
     sendControl({ type: "move", ...point });
   }
@@ -555,14 +568,26 @@ pcStage.addEventListener("pointerup", event => {
     const point = desktopPoint(event);
     sendControl({ type: "move", ...point });
     sendControl({ type: "mouse-up" });
+    if (tapToTypeEnabled && mousePointerStart && !mousePointerMoved) {
+      selectToolsPage("keyboard");
+      const textInput = document.querySelector("#pc-text");
+      textInput.focus({ preventScroll: true });
+    }
+    mousePointerStart = undefined;
   }
 });
 pcStage.addEventListener("pointercancel", event => {
   if (event.pointerType === "pen") endInk();
-  else sendControl({ type: "mouse-up" });
+  else {
+    sendControl({ type: "mouse-up" });
+    mousePointerStart = undefined;
+  }
 });
 pcStage.addEventListener("lostpointercapture", event => {
-  if (event.pointerType !== "pen") sendControl({ type: "mouse-up" });
+  if (event.pointerType !== "pen") {
+    sendControl({ type: "mouse-up" });
+    mousePointerStart = undefined;
+  }
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
