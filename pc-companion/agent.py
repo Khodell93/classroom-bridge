@@ -21,7 +21,7 @@ from PIL import Image
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-ALLOWED_KEYS = {"left", "right", "up", "down", "space", "enter", "esc", "tab", "home", "end", "pageup", "pagedown"}
+ALLOWED_KEYS = {"left", "right", "up", "down", "space", "enter", "esc", "tab", "home", "end", "pageup", "pagedown", "backspace", "delete"}
 WINDOWS_HOTKEYS = {
     ("ctrl", "a"), ("ctrl", "c"), ("ctrl", "v"), ("ctrl", "x"), ("ctrl", "z"),
     ("ctrl", "s"), ("ctrl", "o"), ("ctrl", "p"), ("ctrl", "f"), ("ctrl", "left"),
@@ -86,7 +86,11 @@ def perform_control(command, screen_width, screen_height):
     elif kind == "text":
         value = str(command.get("text", ""))[:250]
         if value.isprintable():
-            pyautogui.write(value, interval=0.01)
+            if value.isascii():
+                pyautogui.write(value, interval=0.01)
+            else:
+                pyperclip.copy(value)
+                pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
     elif kind == "paste":
         value = str(command.get("text", ""))[:20000]
         pyperclip.copy(value)

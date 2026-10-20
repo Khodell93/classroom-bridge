@@ -33,9 +33,9 @@ let sessionActive = false;
 let wakeLockSentinel;
 let reconnectTimer;
 let wasBackgrounded = false;
-let tapToTypeEnabled = false;
 let mousePointerStart;
 let mousePointerMoved = false;
+let remoteInputValue = "";
 
 function setStatus(label, connected = false) {
   statusEl.querySelector("span").textContent = label;
@@ -366,12 +366,6 @@ function handleShortcut(shortcut) {
   sendControl({ type: "hotkey", keys });
 }
 
-function sendTypedText() {
-  const input = document.querySelector("#pc-text");
-  if (!input.value) return;
-  if (sendControl({ type: "text", text: input.value })) input.value = "";
-}
-
 async function pasteIpadClipboard() {
   const message = document.querySelector("#clipboard-message");
   if (controlChannel?.readyState !== "open") {
@@ -446,14 +440,35 @@ document.querySelector("#clear-button").addEventListener("click", clearInk);
 document.querySelector("#previous-slide").addEventListener("click", () => sendControl({ type: "key", key: "left" }));
 document.querySelector("#next-slide").addEventListener("click", () => sendControl({ type: "key", key: "right" }));
 document.querySelector("#open-explorer").addEventListener("click", () => handleShortcut("win+e"));
-document.querySelector("#tap-to-type").addEventListener("click", event => {
-  tapToTypeEnabled = !tapToTypeEnabled;
-  event.currentTarget.setAttribute("aria-pressed", String(tapToTypeEnabled));
-  event.currentTarget.classList.toggle("selected", tapToTypeEnabled);
-  event.currentTarget.textContent = `Tap screen to type: ${tapToTypeEnabled ? "On" : "Off"}`;
+const remoteTypingInput = document.querySelector("#remote-typing-input");
+remoteTypingInput.addEventListener("input", () => {
+  const value = remoteTypingInput.value;
+  if (value.length > remoteInputValue.length && value.startsWith(remoteInputValue)) {
+    sendControl({ type: "text", text: value.slice(remoteInputValue.length, remoteInputValue.length + 250) });
+  } else if (value.length < remoteInputValue.length && remoteInputValue.startsWith(value)) {
+    for (let index = 0; index < remoteInputValue.length - value.length; index += 1) sendControl({ type: "key", key: "backspace" });
+  } else if (value !== remoteInputValue) {
+    sendControl({ type: "text", text: value.slice(-250) });
+  }
+  remoteInputValue = value;
+  if (value.length > 100) {
+    remoteTypingInput.value = "";
+    remoteInputValue = "";
+  }
 });
-document.querySelector("#send-text").addEventListener("click", sendTypedText);
-document.querySelector("#pc-text").addEventListener("keydown", event => { if (event.key === "Enter") sendTypedText(); });
+remoteTypingInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    sendControl({ type: "key", key: "enter" });
+    remoteTypingInput.blur();
+  } else if (event.key === "Backspace" || event.key === "Delete") {
+    event.preventDefault();
+    sendControl({ type: "key", key: event.key.toLowerCase() });
+  } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Tab"].includes(event.key)) {
+    event.preventDefault();
+    sendControl({ type: "key", key: ({ ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Tab: "tab" })[event.key] });
+  }
+});
 document.querySelectorAll(".modifier-key").forEach(button => button.addEventListener("click", () => {
   const modifier = button.dataset.modifier;
   if (modifiers.has(modifier)) modifiers.delete(modifier);
@@ -568,10 +583,11 @@ pcStage.addEventListener("pointerup", event => {
     const point = desktopPoint(event);
     sendControl({ type: "move", ...point });
     sendControl({ type: "mouse-up" });
-    if (tapToTypeEnabled && mousePointerStart && !mousePointerMoved) {
-      selectToolsPage("keyboard");
-      const textInput = document.querySelector("#pc-text");
-      textInput.focus({ preventScroll: true });
+    if (mousePointerStart && !mousePointerMoved && controlChannel?.readyState === "open") {
+      if (!toolsDrawer.hidden) toolsDrawer.hidden = true;
+      remoteTypingInput.value = "";
+      remoteInputValue = "";
+      remoteTypingInput.focus({ preventScroll: true });
     }
     mousePointerStart = undefined;
   }

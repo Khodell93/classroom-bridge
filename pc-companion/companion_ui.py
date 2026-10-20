@@ -1,4 +1,5 @@
 import asyncio
+import ctypes
 import queue
 import secrets
 import subprocess
@@ -54,6 +55,17 @@ class CompanionWindow:
     def start(self):
         if self.worker and self.worker.is_alive():
             return
+        if sys.platform == "darwin":
+            try:
+                application_services = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+                trusted = application_services.AXIsProcessTrusted
+                trusted.restype = ctypes.c_bool
+                if not trusted():
+                    self.status.set("Allow Classroom Bridge under System Settings → Privacy & Security → Accessibility, then quit and reopen the app. Mouse and keyboard control need this permission.")
+                    return
+            except (AttributeError, OSError):
+                self.status.set("Could not check macOS Accessibility permission. Enable it in System Settings → Privacy & Security → Accessibility, then restart this app.")
+                return
         pairing_code = "".join(secrets.choice(ROOM_ALPHABET) for _ in range(12))
         self.code.set(" ".join(pairing_code))
         self.status.set("Starting companion…")

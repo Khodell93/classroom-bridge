@@ -94,11 +94,8 @@
           </div>
 
           <div class="tool-page" data-page="keyboard" hidden>
-            <div class="keyboard-toggle-row"><button id="tap-to-type" class="key-button" aria-pressed="false">Tap screen to type: Off</button></div>
-            <p class="drawer-hint">Turn this on, then tap a text field on the PC or Mac. The iPad keyboard opens; type here and tap Send.</p>
             <div class="typing-row">
-              <input id="pc-text" aria-label="Type on PC" placeholder="Type text on the PC…" autocomplete="off">
-              <button id="send-text" class="primary">Send</button>
+              <p class="drawer-hint">Tap the PC or Mac screen to click and open the iPad keyboard. Drag to move or select. Apple Pencil remains for drawing.</p>
             </div>
             <p class="drawer-hint">Choose a modifier, then a key. Modifiers clear after each key press.</p>
             <div class="key-grid modifiers">
@@ -163,6 +160,7 @@
         </section>
       </div>
     </main>
+    <input id="remote-typing-input" class="remote-typing-input" aria-label="Type on the connected computer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
     <script src="/app.js" defer></script>
   </body>
 </html>
