@@ -31,6 +31,32 @@ function setStatus(label, connected = false) {
   statusEl.classList.toggle("connected", connected);
 }
 
+function readStoredValue(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredValue(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeStoredValue(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 function sendControl(value) {
   if (controlChannel?.readyState !== "open") return false;
   controlChannel.send(JSON.stringify(value));
@@ -147,10 +173,11 @@ async function connect() {
     document.querySelector("#connect-message").textContent = "Enter the 12-character code shown by the PC companion.";
     return;
   }
-  if (rememberCode.checked) localStorage.setItem(SAVED_CODE_KEY, code);
-  else localStorage.removeItem(SAVED_CODE_KEY);
+  const codeSaved = rememberCode.checked ? writeStoredValue(SAVED_CODE_KEY, code) : removeStoredValue(SAVED_CODE_KEY);
   document.querySelector("#connect-button").disabled = true;
-  document.querySelector("#connect-message").textContent = "Connecting to the PC companion…";
+  document.querySelector("#connect-message").textContent = codeSaved
+    ? "Connecting to the PC companion…"
+    : "Connecting, but this browser did not allow saving the pairing code.";
   clearConnection();
   setStatus("Connecting…");
   try {
@@ -421,13 +448,11 @@ window.addEventListener("beforeunload", () => {
   peerConnection?.close();
 });
 
-const savedCode = localStorage.getItem(SAVED_CODE_KEY);
+const savedCode = readStoredValue(SAVED_CODE_KEY);
 if (savedCode) {
   codeInput.value = savedCode;
   rememberCode.checked = true;
 }
-if (!localStorage.getItem(FIRST_OPEN_KEY)) {
-  openSetup();
-  localStorage.setItem(FIRST_OPEN_KEY, "true");
-}
+if (readStoredValue(FIRST_OPEN_KEY)) setupModal.hidden = true;
+else writeStoredValue(FIRST_OPEN_KEY, "true");
 updateModeControls();
