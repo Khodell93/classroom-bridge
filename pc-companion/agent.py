@@ -16,7 +16,7 @@ import numpy as np
 import pyautogui
 import pyperclip
 import websockets
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription, VideoStreamTrack
 from aiortc.codecs import h264, vpx
 from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
@@ -123,6 +123,16 @@ class DesktopVideo(VideoStreamTrack):
         frame.pts = pts
         frame.time_base = time_base
         return frame
+
+
+def prefer_h264(peer):
+    """Offer H.264 first: the iPad encodes and decodes it in hardware (as AirPlay does); VP8 is software in Safari."""
+    codecs = RTCRtpSender.getCapabilities("video").codecs
+    preferred = [codec for codec in codecs if codec.mimeType.lower() == "video/h264"]
+    others = [codec for codec in codecs if codec.mimeType.lower() != "video/h264"]
+    for transceiver in peer.getTransceivers():
+        if transceiver.kind == "video":
+            transceiver.setCodecPreferences(preferred + others)
 
 
 def fit_size(width, height, screen_width, screen_height):
@@ -282,6 +292,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                     peer = RTCPeerConnection()
                     video_track = DesktopVideo()
                     peer.addTrack(video_track)
+                    prefer_h264(peer)
                     channel = peer.createDataChannel("controls")
                     ink_channel = peer.createDataChannel("ink", ordered=True, maxRetransmits=0)
                     media_channel = peer.createDataChannel("media", ordered=True)

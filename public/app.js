@@ -29,6 +29,9 @@ let cameraView = "off";
 let lastStill;
 let stillCounter = 0;
 let cameraFacing = "environment";
+// Live video runs at 1080p so the iPad's hardware encoder keeps it smooth; Freeze briefly switches to 4K for the still.
+const LIVE_CAMERA_SIZE = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+const STILL_CAMERA_SIZE = { width: { ideal: 3840 }, height: { ideal: 2160 } };
 let cameraCapabilities = {};
 let cameraZoom = 1;
 let pendingCameraZoom;
@@ -567,11 +570,11 @@ async function attachCameraTrack() {
     const settings = track.getSettings();
     const parameters = cameraSender.getParameters();
     if (!parameters.encodings?.length) return;
-    // Send up to 1080p at a high bitrate, favouring sharp detail (text, scores) over frame rate.
-    parameters.encodings[0].maxBitrate = 8_000_000;
+    // Up to 1080p at a high bitrate; "balanced" lowers detail briefly rather than freezing frames when the network dips.
+    parameters.encodings[0].maxBitrate = 6_000_000;
     parameters.encodings[0].maxFramerate = 30;
     parameters.encodings[0].scaleResolutionDownBy = Math.max(1, Math.max(settings.width || 1920, settings.height || 1080) / 1920);
-    parameters.degradationPreference = "maintain-resolution";
+    parameters.degradationPreference = "balanced";
     await cameraSender.setParameters(parameters);
   } catch {}
 }
@@ -617,12 +620,28 @@ function showStill(blob) {
 }
 
 // Freeze grabs the camera's full native resolution (up to 4K), which is sharper than the live video.
+function nextCameraFrame() {
+  return new Promise(resolve => {
+    const timeout = window.setTimeout(resolve, 700);
+    if (cameraVideo.requestVideoFrameCallback) cameraVideo.requestVideoFrameCallback(() => { window.clearTimeout(timeout); resolve(); });
+  });
+}
+
 async function freezeCamera() {
   if (!cameraVideo.videoWidth) return;
+  const track = cameraTrack();
+  let raised = false;
+  try {
+    await track?.applyConstraints({ ...STILL_CAMERA_SIZE, frameRate: { ideal: 30 } });
+    raised = true;
+    await nextCameraFrame();
+    await nextCameraFrame();
+  } catch {}
   const canvas = document.createElement("canvas");
   canvas.width = cameraVideo.videoWidth;
   canvas.height = cameraVideo.videoHeight;
   canvas.getContext("2d").drawImage(cameraVideo, 0, 0);
+  if (raised) track.applyConstraints({ ...LIVE_CAMERA_SIZE, frameRate: { ideal: 30 } }).catch(() => {});
   const blob = await canvasToJpeg(canvas);
   if (blob) showStill(blob);
 }
@@ -645,7 +664,7 @@ function cameraTrack() {
 async function startCamera(facing) {
   stopCamera();
   cameraStream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: facing }, width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
+    video: { facingMode: { ideal: facing }, ...LIVE_CAMERA_SIZE, frameRate: { ideal: 30 } },
     audio: false,
   });
   cameraFacing = facing;
