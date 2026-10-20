@@ -19,12 +19,14 @@ const modifiers = new Set();
 let peerConnection;
 let signalSocket;
 let controlChannel;
+let inkChannel;
 let cameraStream;
 let currentMode = "pc";
 let currentToolsPage = "draw";
 let drawEnabled = true;
 let drawing = false;
 let drawingCanvas;
+let lastRemoteInkPoint;
 let previousPoint;
 let hostPlatform = "windows";
 let hostScreenWidth = 1280;
@@ -76,6 +78,15 @@ function sendControl(value) {
   return true;
 }
 
+function sendInk(value) {
+  if (inkChannel?.readyState === "open") {
+    if (value.type === "ink-move" && inkChannel.bufferedAmount > 8192) return false;
+    inkChannel.send(JSON.stringify(value));
+    return true;
+  }
+  return sendControl(value);
+}
+
 function resizeCanvas(canvas) {
   const bounds = canvas.getBoundingClientRect();
   const ratio = window.devicePixelRatio || 1;
@@ -107,9 +118,10 @@ function beginInk(canvas, event) {
   drawingCanvas = canvas;
   if (canvas === pcInk) {
     const point = desktopPoint(event);
+    lastRemoteInkPoint = point;
     const stageBounds = pcStage.getBoundingClientRect();
     const streamWidth = Math.min(stageBounds.width, stageBounds.height * 16 / 9);
-    sendControl({ type: "ink-start", ...point, color: context.strokeStyle, width: Number(document.querySelector("#ink-width").value) * hostScreenWidth / streamWidth });
+    sendInk({ type: "ink-start", ...point, color: context.strokeStyle, width: Number(document.querySelector("#ink-width").value) * hostScreenWidth / streamWidth });
   }
   if (event.currentTarget === canvas) canvas.setPointerCapture(event.pointerId);
   return true;
@@ -125,14 +137,22 @@ function moveInk(canvas, event) {
   context.lineTo(nextPoint.x, nextPoint.y);
   context.stroke();
   previousPoint = nextPoint;
-  if (canvas === pcInk) sendControl({ type: "ink-move", ...desktopPoint(event) });
+  if (canvas === pcInk) {
+    const point = desktopPoint(event);
+    const distance = lastRemoteInkPoint && Math.hypot((point.x - lastRemoteInkPoint.x) * hostScreenWidth, (point.y - lastRemoteInkPoint.y) * hostScreenHeight);
+    if (!lastRemoteInkPoint || distance >= 1) {
+      sendInk({ type: "ink-move", ...point });
+      lastRemoteInkPoint = point;
+    }
+  }
 }
 
 function endInk() {
-  if (drawingCanvas === pcInk) sendControl({ type: "ink-end" });
+  if (drawingCanvas === pcInk) sendInk({ type: "ink-end" });
   drawing = false;
   previousPoint = undefined;
   drawingCanvas = undefined;
+  lastRemoteInkPoint = undefined;
 }
 
 function updateModeControls() {
@@ -191,6 +211,7 @@ function clearConnection() {
   signalSocket = undefined;
   peerConnection = undefined;
   controlChannel = undefined;
+  inkChannel = undefined;
   pcVideo.srcObject = null;
   pcPlaceholder.hidden = false;
   modifiers.clear();
@@ -223,6 +244,10 @@ async function connect() {
       setCanvasSizes();
     };
     peerConnection.ondatachannel = event => {
+      if (event.channel.label === "ink") {
+        inkChannel = event.channel;
+        return;
+      }
       controlChannel = event.channel;
       controlChannel.onopen = () => {
         window.clearTimeout(reconnectTimer);
@@ -354,7 +379,7 @@ function selectMode(mode) {
 
 function clearInk() {
   for (const canvas of [pcInk, cameraInk]) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
-  if (currentMode === "pc") sendControl({ type: "ink-clear" });
+  if (currentMode === "pc") sendInk({ type: "ink-clear" });
 }
 
 function handleKey(key) {

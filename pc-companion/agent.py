@@ -124,6 +124,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
                     video_track = DesktopVideo()
                     peer.addTrack(video_track)
                     channel = peer.createDataChannel("controls")
+                    ink_channel = peer.createDataChannel("ink", ordered=True, maxRetransmits=0)
                     channel.on("open", lambda: channel.send(json.dumps({
                         "type": "host-info",
                         "os": "macos" if sys.platform == "darwin" else "windows",
@@ -131,6 +132,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
                         "screenHeight": height,
                     })))
                     channel.on("message", lambda raw: handle_message(raw, width, height, channel, on_ink))
+                    ink_channel.on("message", lambda raw: handle_message(raw, width, height, on_ink=on_ink))
                     pending_candidates.clear()
                     offer = await peer.createOffer()
                     await peer.setLocalDescription(offer)

@@ -5,7 +5,6 @@ class DesktopInkOverlay:
     def __init__(self, root, width, height):
         self.width = width
         self.height = height
-        self.strokes = []
         self.active_stroke = None
         self.visible = False
         if sys.platform == "darwin":
@@ -44,27 +43,17 @@ class DesktopInkOverlay:
         frame = screen.frame()
         self.width = int(frame.size.width)
         self.height = int(frame.size.height)
+        self.image = AppKit.NSImage.alloc().initWithSize_(frame.size)
 
         overlay = self
 
         class InkView(AppKit.NSView):
             def drawRect_(view, rect):
                 AppKit.NSColor.clearColor().set()
-                AppKit.NSBezierPath.bezierPath().fill()
-                for stroke in overlay.strokes:
-                    points = stroke["points"]
-                    if not points:
-                        continue
-                    red, green, blue = overlay._color(stroke["color"])
-                    AppKit.NSColor.colorWithCalibratedRed_green_blue_alpha_(red, green, blue, 1).set()
-                    path = AppKit.NSBezierPath.bezierPath()
-                    path.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
-                    path.setLineJoinStyle_(AppKit.NSRoundLineJoinStyle)
-                    path.setLineWidth_(stroke["width"])
-                    path.moveToPoint_(overlay._point(points[0]))
-                    for point in points[1:]:
-                        path.lineToPoint_(overlay._point(point))
-                    path.stroke()
+                AppKit.NSRectFillUsingOperation(view.bounds(), AppKit.NSCompositingOperationClear)
+                overlay.image.drawInRect_fromRect_operation_fraction_(
+                    view.bounds(), AppKit.NSZeroRect, AppKit.NSCompositingOperationSourceOver, 1
+                )
 
         self.window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             frame, AppKit.NSWindowStyleMaskBorderless, AppKit.NSBackingStoreBuffered, False
@@ -92,20 +81,23 @@ class DesktopInkOverlay:
             self.active_stroke = {
                 "color": command.get("color", "#ff4b6e"),
                 "width": max(1, min(80, float(command.get("width", 4)))),
-                "points": [(float(command.get("x", 0)), float(command.get("y", 0)))],
+                "last": (float(command.get("x", 0)), float(command.get("y", 0))),
             }
-            self.strokes.append(self.active_stroke)
             self._show()
         elif kind == "ink-move" and self.active_stroke is not None:
-            self.active_stroke["points"].append((float(command.get("x", 0)), float(command.get("y", 0))))
-            self._redraw()
+            point = (float(command.get("x", 0)), float(command.get("y", 0)))
+            self._draw_segment(self.active_stroke, self.active_stroke["last"], point)
+            self.active_stroke["last"] = point
         elif kind == "ink-end":
             self.active_stroke = None
-            self._redraw()
         elif kind == "ink-clear":
-            self.strokes.clear()
             self.active_stroke = None
-            self._redraw()
+            if sys.platform == "darwin":
+                frame = self.window.frame()
+                self.image = self.appkit.NSImage.alloc().initWithSize_(frame.size)
+                self.view.setNeedsDisplay_(True)
+            else:
+                self.canvas.delete("ink")
 
     def _show(self):
         if not self.visible:
@@ -115,19 +107,38 @@ class DesktopInkOverlay:
             else:
                 self.window.deiconify()
                 self.window.lift()
-        self._redraw()
+        self.view.setNeedsDisplay_(True) if sys.platform == "darwin" else None
 
-    def _redraw(self):
+    def _draw_segment(self, stroke, start, end):
         if sys.platform == "darwin":
-            self.view.setNeedsDisplay_(True)
+            appkit = self.appkit
+            self.image.lockFocus()
+            red, green, blue = self._color(stroke["color"])
+            appkit.NSColor.colorWithCalibratedRed_green_blue_alpha_(red, green, blue, 1).set()
+            path = appkit.NSBezierPath.bezierPath()
+            path.setLineCapStyle_(appkit.NSRoundLineCapStyle)
+            path.setLineWidth_(stroke["width"])
+            path.moveToPoint_(self._point(start))
+            path.lineToPoint_(self._point(end))
+            path.stroke()
+            self.image.unlockFocus()
+            padding = stroke["width"] * 2
+            x = min(start[0], end[0]) * self.width - padding
+            y = (1 - max(start[1], end[1])) * self.height - padding
+            width = abs(end[0] - start[0]) * self.width + padding * 2
+            height = abs(end[1] - start[1]) * self.height + padding * 2
+            self.view.setNeedsDisplayInRect_(self.appkit.NSMakeRect(x, y, width, height))
         else:
-            self.canvas.delete("ink")
-            for stroke in self.strokes:
-                points = stroke["points"]
-                if len(points) < 2:
-                    continue
-                coords = [coordinate for point in points for coordinate in (point[0] * self.width, point[1] * self.height)]
-                self.canvas.create_line(*coords, fill=stroke["color"], width=stroke["width"], capstyle="round", joinstyle="round", smooth=True, tags="ink")
+            self.canvas.create_line(
+                start[0] * self.width,
+                start[1] * self.height,
+                end[0] * self.width,
+                end[1] * self.height,
+                fill=stroke["color"],
+                width=stroke["width"],
+                capstyle="round",
+                tags="ink",
+            )
 
     def close(self):
         if sys.platform == "darwin":
