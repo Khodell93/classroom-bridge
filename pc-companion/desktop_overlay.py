@@ -1,6 +1,18 @@
 import sys
 
 
+if sys.platform == "darwin":
+    import AppKit
+
+    class ClassroomBridgeDesktopInkOverlayView(AppKit.NSView):
+        def drawRect_(view, rect):
+            AppKit.NSColor.clearColor().set()
+            AppKit.NSRectFillUsingOperation(view.bounds(), AppKit.NSCompositingOperationClear)
+            view.overlay_image.drawInRect_fromRect_operation_fraction_(
+                view.bounds(), AppKit.NSZeroRect, AppKit.NSCompositingOperationSourceOver, 1
+            )
+
+
 class DesktopInkOverlay:
     def __init__(self, root, width, height):
         self.width = width
@@ -45,16 +57,6 @@ class DesktopInkOverlay:
         self.height = int(frame.size.height)
         self.image = AppKit.NSImage.alloc().initWithSize_(frame.size)
 
-        overlay = self
-
-        class InkView(AppKit.NSView):
-            def drawRect_(view, rect):
-                AppKit.NSColor.clearColor().set()
-                AppKit.NSRectFillUsingOperation(view.bounds(), AppKit.NSCompositingOperationClear)
-                overlay.image.drawInRect_fromRect_operation_fraction_(
-                    view.bounds(), AppKit.NSZeroRect, AppKit.NSCompositingOperationSourceOver, 1
-                )
-
         self.window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             frame, AppKit.NSWindowStyleMaskBorderless, AppKit.NSBackingStoreBuffered, False
         )
@@ -64,7 +66,8 @@ class DesktopInkOverlay:
         self.window.setHasShadow_(False)
         self.window.setLevel_(AppKit.NSFloatingWindowLevel)
         self.window.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces | AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
-        self.view = InkView.alloc().initWithFrame_(frame)
+        self.view = ClassroomBridgeDesktopInkOverlayView.alloc().initWithFrame_(frame)
+        self.view.overlay_image = self.image
         self.window.setContentView_(self.view)
         self.window.orderOut_(None)
 
@@ -95,6 +98,7 @@ class DesktopInkOverlay:
             if sys.platform == "darwin":
                 frame = self.window.frame()
                 self.image = self.appkit.NSImage.alloc().initWithSize_(frame.size)
+                self.view.overlay_image = self.image
                 self.view.setNeedsDisplay_(True)
             else:
                 self.canvas.delete("ink")
