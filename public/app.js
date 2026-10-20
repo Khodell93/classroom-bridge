@@ -689,114 +689,304 @@ for (const canvas of [pcInk]) {
   canvas.addEventListener("pointercancel", endInk);
 }
 
-pcStage.addEventListener("pointerdown", event => {
-  if (currentMode !== "pc") return;
-  if (event.pointerType === "touch") {
-    activeTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (activeTouches.size >= 2) {
-      if (!pinchGesture) startPinch();
-      pcStage.setPointerCapture(event.pointerId);
-      event.preventDefault();
+// PC mode gestures, like a Windows touchscreen:
+//   tap = click (two quick taps = double-click) · one-finger swipe = scroll, with momentum
+//   press and hold, then drag = click-and-drag (select text, move windows) · two-finger tap = right-click
+//   two-finger drag = scroll · pinch = zoom · three-finger swipe left/right = next/previous slide,
+//   up = task view, down = show desktop. Apple Pencil draws; a mouse behaves as a mouse.
+const PC_HOLD_MS = 450;
+const PC_MOVE_SLOP = 10;
+const pcGesture = {
+  touches: new Map(),
+  mode: null,
+  maxTouches: 0,
+  started: 0,
+  startPoint: null,
+  last: null,
+  holdTimer: undefined,
+  lastTap: null,
+  pendingScroll: { dx: 0, dy: 0 },
+  scrollFrame: undefined,
+  samples: [],
+  momentum: undefined,
+  twoStart: null,
+  threeStart: null,
+};
+
+function touchCenter() {
+  const touches = [...pcGesture.touches.values()];
+  return {
+    x: touches.reduce((sum, touch) => sum + touch.x, 0) / touches.length,
+    y: touches.reduce((sum, touch) => sum + touch.y, 0) / touches.length,
+  };
+}
+
+// Converts a finger movement on the iPad into desktop pixels.
+function desktopDelta(from, to) {
+  const a = desktopPoint({ clientX: from.x, clientY: from.y });
+  const b = desktopPoint({ clientX: to.x, clientY: to.y });
+  return { dx: (b.x - a.x) * hostScreenWidth, dy: (b.y - a.y) * hostScreenHeight };
+}
+
+function queueScroll(dx, dy) {
+  pcGesture.pendingScroll.dx += dx;
+  pcGesture.pendingScroll.dy += dy;
+  if (pcGesture.scrollFrame) return;
+  pcGesture.scrollFrame = requestAnimationFrame(() => {
+    pcGesture.scrollFrame = undefined;
+    const { dx: x, dy: y } = pcGesture.pendingScroll;
+    pcGesture.pendingScroll = { dx: 0, dy: 0 };
+    if (Math.abs(x) >= 0.5 || Math.abs(y) >= 0.5) sendControl({ type: "scroll", dx: Math.round(x * 10) / 10, dy: Math.round(y * 10) / 10 });
+  });
+}
+
+function scrollBy(from, to) {
+  const { dx, dy } = desktopDelta(from, to);
+  queueScroll(dx, dy);
+  const now = performance.now();
+  pcGesture.samples.push({ t: now, dx, dy });
+  pcGesture.samples = pcGesture.samples.filter(sample => now - sample.t < 100);
+}
+
+function stopMomentum() {
+  if (pcGesture.momentum) cancelAnimationFrame(pcGesture.momentum.frame);
+  pcGesture.momentum = undefined;
+}
+
+// Keeps scrolling after a flick and slows down, like scrolling on the iPad itself.
+function startMomentum() {
+  const samples = pcGesture.samples;
+  pcGesture.samples = [];
+  if (samples.length < 2) return;
+  const span = Math.max(16, performance.now() - samples[0].t);
+  let vx = samples.reduce((sum, sample) => sum + sample.dx, 0) / span;
+  let vy = samples.reduce((sum, sample) => sum + sample.dy, 0) / span;
+  if (Math.hypot(vx, vy) < 0.4) return;
+  let last = performance.now();
+  const step = now => {
+    const elapsed = Math.min(50, now - last);
+    last = now;
+    queueScroll(vx * elapsed, vy * elapsed);
+    const decay = Math.pow(0.94, elapsed / 16);
+    vx *= decay;
+    vy *= decay;
+    if (Math.hypot(vx, vy) < 0.05) {
+      pcGesture.momentum = undefined;
       return;
     }
+    pcGesture.momentum.frame = requestAnimationFrame(step);
+  };
+  pcGesture.momentum = { frame: requestAnimationFrame(step) };
+}
+
+function showTouchRing(point, active) {
+  const ring = document.querySelector("#pc-touch-ring");
+  const bounds = pcStage.getBoundingClientRect();
+  ring.hidden = !active;
+  if (active) {
+    ring.style.left = `${point.x - bounds.left}px`;
+    ring.style.top = `${point.y - bounds.top}px`;
   }
-  if (event.isPrimary === false) return;
-  if (event.pointerType === "pen") beginInk(pcInk, event);
-  else {
-    const point = desktopPoint(event);
-    mousePointerStart = { x: event.clientX, y: event.clientY };
-    mousePointerMoved = false;
-    sendControl({ type: "move", ...point });
+}
+
+function pcTouchDown(event) {
+  stopMomentum();
+  pcGesture.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  pcGesture.maxTouches = Math.max(pcGesture.maxTouches, pcGesture.touches.size);
+  pcStage.setPointerCapture?.(event.pointerId);
+  const count = pcGesture.touches.size;
+  if (count === 1) {
+    const point = { x: event.clientX, y: event.clientY };
+    pcGesture.mode = "pending";
+    pcGesture.started = performance.now();
+    pcGesture.startPoint = point;
+    pcGesture.last = point;
+    pcGesture.samples = [];
+    sendControl({ type: "move", ...desktopPoint(event) });
+    window.clearTimeout(pcGesture.holdTimer);
+    pcGesture.holdTimer = window.setTimeout(() => {
+      if (pcGesture.mode !== "pending") return;
+      pcGesture.mode = "drag";
+      sendControl({ type: "move", ...desktopPoint({ clientX: point.x, clientY: point.y }) });
+      sendControl({ type: "mouse-down" });
+      showTouchRing(point, true);
+    }, PC_HOLD_MS);
+  } else if (count === 2) {
+    window.clearTimeout(pcGesture.holdTimer);
+    if (pcGesture.mode === "drag") sendControl({ type: "mouse-up" });
+    showTouchRing(null, false);
+    const [first, second] = [...pcGesture.touches.values()];
+    pcGesture.mode = "two";
+    pcGesture.twoStart = { center: touchCenter(), distance: Math.hypot(second.x - first.x, second.y - first.y) };
+    pcGesture.last = touchCenter();
+  } else {
+    if (pcGesture.mode === "pinch") {
+      pinchGesture = undefined;
+      activeTouches.clear();
+    }
+    pcGesture.mode = "three";
+    pcGesture.threeStart = touchCenter();
+  }
+  event.preventDefault();
+}
+
+function pcTouchMove(event) {
+  const touch = pcGesture.touches.get(event.pointerId);
+  if (!touch) return;
+  touch.x = event.clientX;
+  touch.y = event.clientY;
+  const point = { x: event.clientX, y: event.clientY };
+  switch (pcGesture.mode) {
+    case "pending":
+      if (Math.hypot(point.x - pcGesture.startPoint.x, point.y - pcGesture.startPoint.y) > PC_MOVE_SLOP) {
+        window.clearTimeout(pcGesture.holdTimer);
+        pcGesture.mode = "scroll";
+        scrollBy(pcGesture.last, point);
+        pcGesture.last = point;
+      }
+      break;
+    case "scroll":
+      scrollBy(pcGesture.last, point);
+      pcGesture.last = point;
+      break;
+    case "drag":
+      sendControl({ type: "move", ...desktopPoint(event) });
+      showTouchRing(point, true);
+      break;
+    case "two": {
+      const [first, second] = [...pcGesture.touches.values()];
+      const center = touchCenter();
+      const spread = Math.abs(Math.hypot(second.x - first.x, second.y - first.y) - pcGesture.twoStart.distance);
+      const travel = Math.hypot(center.x - pcGesture.twoStart.center.x, center.y - pcGesture.twoStart.center.y);
+      if (spread > 28 && spread > travel) {
+        pcGesture.mode = "pinch";
+        activeTouches.clear();
+        for (const [id, value] of pcGesture.touches) activeTouches.set(id, { ...value });
+        startPinch();
+      } else if (travel > PC_MOVE_SLOP) {
+        pcGesture.mode = "two-scroll";
+        pcGesture.last = center;
+      }
+      break;
+    }
+    case "two-scroll": {
+      const center = touchCenter();
+      scrollBy(pcGesture.last, center);
+      pcGesture.last = center;
+      break;
+    }
+    case "pinch":
+      activeTouches.clear();
+      for (const [id, value] of pcGesture.touches) activeTouches.set(id, { ...value });
+      updatePinch();
+      break;
+    default:
+      break;
+  }
+  event.preventDefault();
+}
+
+function pcTouchUp(event) {
+  if (!pcGesture.touches.has(event.pointerId)) return;
+  const releasing = { ...pcGesture.touches.get(event.pointerId) };
+  const centerBefore = touchCenter();
+  pcGesture.touches.delete(event.pointerId);
+  const cancelled = event.type === "pointercancel";
+  const mode = pcGesture.mode;
+  if (mode === "pending" && !cancelled) {
+    window.clearTimeout(pcGesture.holdTimer);
+    // Two quick taps in the same place become a double-click, so the second tap reuses the first position.
+    const now = performance.now();
+    const previous = pcGesture.lastTap;
+    const doubleTap = previous && now - previous.time < 450 && Math.hypot(releasing.x - previous.x, releasing.y - previous.y) < 30;
+    const at = doubleTap ? previous : pcGesture.startPoint;
+    sendControl({ type: "move", ...desktopPoint({ clientX: at.x, clientY: at.y }) });
+    sendControl({ type: "click" });
+    pcGesture.lastTap = doubleTap ? null : { x: at.x, y: at.y, time: now };
+  } else if (mode === "drag") {
+    sendControl({ type: "move", ...desktopPoint({ clientX: releasing.x, clientY: releasing.y }) });
+    sendControl({ type: "mouse-up" });
+    showTouchRing(null, false);
+  } else if (mode === "two" && !pcGesture.touches.size && !cancelled && pcGesture.maxTouches === 2 && performance.now() - pcGesture.started < 600) {
+    const at = pcGesture.startPoint;
+    sendControl({ type: "move", ...desktopPoint({ clientX: at.x, clientY: at.y }) });
+    sendControl({ type: "right-click" });
+  } else if (mode === "pinch") {
+    pinchGesture = undefined;
+    activeTouches.clear();
+  } else if (mode === "three" && pcGesture.threeStart && !cancelled) {
+    const dx = centerBefore.x - pcGesture.threeStart.x;
+    const dy = centerBefore.y - pcGesture.threeStart.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > 60) {
+      if (Math.abs(dx) > Math.abs(dy)) sendControl({ type: "key", key: dx < 0 ? "right" : "left" });
+      else sendControl({ type: "hotkey", keys: dy < 0 ? ["win", "tab"] : ["win", "d"] });
+    }
+    pcGesture.threeStart = null;
+  }
+  if (!pcGesture.touches.size) {
+    if (mode === "scroll" || mode === "two-scroll") startMomentum();
+    pcGesture.mode = null;
+    pcGesture.maxTouches = 0;
+    pcGesture.twoStart = null;
+  } else if (mode !== "two") {
+    // Fingers left behind after a multi-finger gesture are ignored until all are lifted; a two-finger tap waits
+    // for both fingers, which rarely lift at exactly the same moment.
+    pcGesture.mode = "ignore";
+  }
+  event.preventDefault();
+}
+
+pcStage.addEventListener("pointerdown", event => {
+  if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
+  if (currentMode !== "pc") return;
+  if (event.pointerType === "pen") {
+    beginInk(pcInk, event);
+    pcStage.setPointerCapture(event.pointerId);
+  } else if (event.pointerType === "touch") {
+    pcTouchDown(event);
+  } else if (event.isPrimary) {
+    sendControl({ type: "move", ...desktopPoint(event) });
     sendControl({ type: "mouse-down" });
+    pcStage.setPointerCapture(event.pointerId);
     event.preventDefault();
   }
-  pcStage.setPointerCapture(event.pointerId);
 });
 pcStage.addEventListener("pointermove", event => {
+  if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
   if (currentMode !== "pc") return;
-  if (event.pointerType === "touch" && suppressedTouches.has(event.pointerId)) {
-    event.preventDefault();
-    return;
-  }
-  if (event.pointerType === "touch" && activeTouches.has(event.pointerId)) {
-    activeTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (pinchGesture) {
-      updatePinch();
-      event.preventDefault();
-      return;
-    }
-  }
-  if (drawing && event.pointerType === "pen") moveInk(pcInk, event);
-  else if (event.pointerType !== "pen") {
-    if (mousePointerStart && Math.hypot(event.clientX - mousePointerStart.x, event.clientY - mousePointerStart.y) > 10) mousePointerMoved = true;
-    const point = desktopPoint(event);
-    sendControl({ type: "move", ...point });
+  if (event.pointerType === "pen") {
+    if (drawing) moveInk(pcInk, event);
+  } else if (event.pointerType === "touch") {
+    pcTouchMove(event);
+  } else {
+    sendControl({ type: "move", ...desktopPoint(event) });
   }
 });
 pcStage.addEventListener("pointerup", event => {
+  if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
   if (event.pointerType === "pen") endInk();
+  else if (event.pointerType === "touch") pcTouchUp(event);
   else {
-    if (event.pointerType === "touch") {
-      activeTouches.delete(event.pointerId);
-      if (pinchGesture) {
-        pinchGesture = undefined;
-        for (const pointerId of activeTouches.keys()) suppressedTouches.add(pointerId);
-        mousePointerStart = undefined;
-        lastTap = null;
-        sendControl({ type: "mouse-up" });
-        event.preventDefault();
-        return;
-      }
-      if (suppressedTouches.delete(event.pointerId)) {
-        event.preventDefault();
-        return;
-      }
-    }
-    const point = desktopPoint(event);
-    sendControl({ type: "move", ...point });
+    sendControl({ type: "move", ...desktopPoint(event) });
     sendControl({ type: "mouse-up" });
-    if (mousePointerStart && !mousePointerMoved) {
-      const now = Date.now();
-      const isDoubleTap = lastTap && now - lastTap.time < 450 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 32;
-      lastTap = { x: event.clientX, y: event.clientY, time: now };
-      if (isDoubleTap && controlChannel?.readyState === "open") {
-        if (!toolsDrawer.hidden) toolsDrawer.hidden = true;
-        remoteTypingInput.value = "";
-        remoteInputValue = "";
-        remoteTypingInput.focus({ preventScroll: true });
-        lastTap = null;
-      }
-    } else {
-      lastTap = null;
-    }
-    mousePointerStart = undefined;
   }
 });
 pcStage.addEventListener("pointercancel", event => {
+  if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
   if (event.pointerType === "pen") endInk();
-  else {
-    if (event.pointerType === "touch") {
-      activeTouches.delete(event.pointerId);
-      if (pinchGesture) {
-        pinchGesture = undefined;
-        for (const pointerId of activeTouches.keys()) suppressedTouches.add(pointerId);
-      }
-      if (suppressedTouches.delete(event.pointerId)) {
-        mousePointerStart = undefined;
-        sendControl({ type: "mouse-up" });
-        event.preventDefault();
-        return;
-      }
-    }
-    sendControl({ type: "mouse-up" });
-    mousePointerStart = undefined;
-  }
+  else if (event.pointerType === "touch") pcTouchUp(event);
+  else sendControl({ type: "mouse-up" });
 });
-pcStage.addEventListener("lostpointercapture", event => {
-  if (event.pointerType !== "pen") {
-    sendControl({ type: "mouse-up" });
-    mousePointerStart = undefined;
-  }
+pcStage.addEventListener("wheel", event => {
+  if (currentMode !== "pc") return;
+  event.preventDefault();
+  queueScroll(-event.deltaX, -event.deltaY);
+}, { passive: false });
+document.querySelector("#pc-keyboard").addEventListener("click", () => {
+  if (controlChannel?.readyState !== "open") return;
+  remoteTypingInput.value = "";
+  remoteInputValue = "";
+  remoteTypingInput.focus({ preventScroll: true });
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {

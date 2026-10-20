@@ -94,3 +94,5 @@
 .vis-film-list.choosing .vis-film-tile[data-photo]{opacity:.55}
 .vis-film-list.choosing .vis-film-tile.chosen{opacity:1;border-color:#ff9f0a}
 .vis-film-tile b{position:absolute;left:3px;top:3px;display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#ff9f0a;color:#000;font-size:11px}
+.pc-touch-ring{position:absolute;z-index:3;width:54px;height:54px;margin:-27px 0 0 -27px;border:3px solid #9cc8ff;border-radius:50%;background:#9cc8ff33;pointer-events:none}
+.pc-keyboard{position:absolute;z-index:3;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:16px;font-size:24px}
