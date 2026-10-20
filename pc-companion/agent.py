@@ -2,13 +2,13 @@ import argparse
 import asyncio
 import json
 import secrets
-import string
 import sys
 import threading
 
 import mss
 import numpy as np
 import pyautogui
+import pyperclip
 import websockets
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 from aiortc.sdp import candidate_from_sdp
@@ -18,7 +18,14 @@ from PIL import Image
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-ALLOWED_KEYS = {"left", "right", "space", "enter", "esc", "home", "end", "pageup", "pagedown"}
+ALLOWED_KEYS = {"left", "right", "up", "down", "space", "enter", "esc", "tab", "home", "end", "pageup", "pagedown"}
+ALLOWED_HOTKEYS = {
+    ("ctrl", "a"), ("ctrl", "c"), ("ctrl", "v"), ("ctrl", "x"), ("ctrl", "z"),
+    ("ctrl", "s"), ("ctrl", "o"), ("ctrl", "p"), ("ctrl", "f"), ("ctrl", "left"),
+    ("ctrl", "right"), ("ctrl", "up"), ("ctrl", "down"), ("ctrl", "shift", "left"),
+    ("ctrl", "shift", "right"), ("shift", "tab"), ("alt", "tab"), ("win", "e"),
+    ("win", "left"), ("win", "right"), ("win", "up"), ("win", "down"),
+}
 
 
 class DesktopVideo(VideoStreamTrack):
@@ -55,12 +62,18 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.click()
     elif kind == "key" and command.get("key") in ALLOWED_KEYS:
         pyautogui.press(command["key"])
-    elif kind == "hotkey" and command.get("keys") == ["win", "e"]:
-        pyautogui.hotkey("win", "e")
+    elif kind == "hotkey":
+        keys = command.get("keys")
+        if isinstance(keys, list) and tuple(keys) in ALLOWED_HOTKEYS:
+            pyautogui.hotkey(*keys)
     elif kind == "text":
         value = str(command.get("text", ""))[:250]
         if value.isprintable():
             pyautogui.write(value, interval=0.01)
+    elif kind == "paste":
+        value = str(command.get("text", ""))[:20000]
+        pyperclip.copy(value)
+        pyautogui.hotkey("ctrl", "v")
 
 
 async def run(signal_url, room, notify=print, stop_event=None):
@@ -70,10 +83,11 @@ async def run(signal_url, room, notify=print, stop_event=None):
     peer.addTrack(video_track)
     channel = peer.createDataChannel("controls")
     width, height = pyautogui.size()
-    channel.on("message", lambda raw: handle_message(raw, width, height))
+    channel.on("message", lambda raw: handle_message(raw, width, height, channel))
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"
     notify("Connecting to Classroom Bridge…")
     offered = False
+    pending_candidates = []
     try:
         async with websockets.connect(pair_url, max_size=48_000, ping_interval=20) as socket:
             notify("Ready — enter the pairing code on the iPad.")
@@ -92,13 +106,19 @@ async def run(signal_url, room, notify=print, stop_event=None):
                 elif message.get("type") == "answer":
                     description = message.get("description", {})
                     await peer.setRemoteDescription(RTCSessionDescription(sdp=description["sdp"], type=description["type"]))
+                    for candidate in pending_candidates:
+                        await peer.addIceCandidate(candidate)
+                    pending_candidates.clear()
                     notify("Connected. The iPad can now control this desktop.")
                 elif message.get("type") == "candidate" and message.get("candidate"):
                     candidate_data = message["candidate"]
                     candidate = candidate_from_sdp(candidate_data["candidate"].removeprefix("candidate:"))
                     candidate.sdpMid = candidate_data.get("sdpMid")
                     candidate.sdpMLineIndex = candidate_data.get("sdpMLineIndex")
-                    await peer.addIceCandidate(candidate)
+                    if peer.remoteDescription:
+                        await peer.addIceCandidate(candidate)
+                    else:
+                        pending_candidates.append(candidate)
     except KeyboardInterrupt:
         pass
     finally:
@@ -107,10 +127,21 @@ async def run(signal_url, room, notify=print, stop_event=None):
         notify("Companion stopped.")
 
 
-def handle_message(raw, width, height):
+def handle_message(raw, width, height, channel=None):
     try:
         command = json.loads(raw)
-        perform_control(command, width, height)
+        if command.get("type") == "clipboard-read":
+            if channel and channel.readyState == "open":
+                try:
+                    response = {"type": "clipboard-text", "text": pyperclip.paste()[:20000]}
+                except pyperclip.PyperclipException:
+                    response = {"type": "clipboard-error"}
+                channel.send(json.dumps(response))
+        else:
+            perform_control(command, width, height)
+    except pyperclip.PyperclipException:
+        if channel and channel.readyState == "open":
+            channel.send(json.dumps({"type": "clipboard-error"}))
     except (ValueError, TypeError, KeyError, pyautogui.FailSafeException):
         return
 

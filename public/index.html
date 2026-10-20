@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#101827">
+    <meta name="theme-color" content="#07111f">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Classroom Bridge">
@@ -16,59 +16,150 @@
     <main class="app-shell">
       <header class="topbar">
         <div class="brand"><span class="brand-mark">CB</span><span>Classroom Bridge</span></div>
-        <span id="connection-status" class="status">Not connected</span>
+        <div class="topbar-actions">
+          <span id="connection-status" class="status"><i></i><span>Not connected</span></span>
+          <button id="setup-open" class="icon-button" aria-label="Connection settings" title="Connection settings">⚙</button>
+        </div>
       </header>
 
-      <section id="connect-panel" class="connect-panel">
-        <div class="intro">
-          <p class="eyebrow">iPad controller</p>
-          <h1>Your PC and teaching tools,<br>in one place.</h1>
-          <p class="lede">Connect to the classroom PC, then mirror this app to the TV. Your PC stays on while you switch to the camera.</p>
-        </div>
-        <div class="connect-card">
-          <label for="pair-code">PC pairing code</label>
-          <input id="pair-code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="Shown by the PC companion">
-          <button id="connect-button" class="primary">Connect to PC</button>
-          <p id="connect-message" class="hint">The PC and iPad need an internet connection for pairing and a network that permits a direct connection.</p>
-        </div>
-      </section>
-
-      <section id="workspace" class="workspace" hidden>
-        <nav class="modebar" aria-label="Workspace modes">
-          <button class="mode-button selected" data-mode="pc">PC screen</button>
-          <button class="mode-button" data-mode="camera">Camera / photo</button>
-          <div class="tools" id="ink-tools">
-            <button id="pen-button" class="tool-button active" title="Draw with Apple Pencil">✎ Pen</button>
-            <button id="clear-button" class="tool-button" title="Clear annotations">Clear</button>
-          </div>
-          <button id="open-explorer" class="tool-button pc-only">Open File Explorer</button>
-          <button id="disconnect-button" class="tool-button disconnect">Disconnect</button>
-        </nav>
-
+      <section id="workspace" class="workspace">
         <div class="stage-wrap">
           <div id="pc-stage" class="stage pc-stage">
             <video id="pc-video" autoplay playsinline></video>
             <canvas id="pc-ink" class="ink-layer"></canvas>
-            <div id="pc-placeholder" class="stage-placeholder"><span class="placeholder-icon">▣</span><strong>Waiting for the PC screen</strong><span>Start the companion on the Windows PC using the code above.</span></div>
+            <div id="pc-placeholder" class="stage-placeholder">
+              <span class="placeholder-icon">▣</span>
+              <strong>Ready when you are</strong>
+              <span>Open connection settings to connect the classroom PC.</span>
+              <button id="placeholder-setup" class="primary">Connect to PC</button>
+            </div>
           </div>
           <div id="camera-stage" class="stage camera-stage" hidden>
-            <video id="camera-video" autoplay playsinline muted></video>
+            <video id="camera-video" autoplay playsinline muted hidden></video>
             <img id="photo-image" alt="Selected photo or score" hidden>
             <canvas id="camera-ink" class="ink-layer"></canvas>
-            <div id="camera-placeholder" class="stage-placeholder"><span class="placeholder-icon">◉</span><strong>Camera or photo</strong><span>Start the iPad camera or choose a photo or score.</span></div>
-            <div class="camera-controls">
-              <button id="camera-start" class="primary">Start camera</button>
-              <label class="file-button">Choose photo<input id="photo-input" type="file" accept="image/*" capture="environment"></label>
-              <button id="camera-stop" class="tool-button" hidden>Stop camera</button>
+            <div id="camera-placeholder" class="stage-placeholder">
+              <span class="placeholder-icon">◉</span>
+              <strong>Camera or photo</strong>
+              <span>Start the iPad camera or choose a photo or score from Tools.</span>
             </div>
           </div>
         </div>
-        <footer class="bottom-bar">
-          <span id="stage-hint">Touch to control the PC. Draw with Apple Pencil.</span>
-          <div class="slide-controls" id="slide-controls"><input id="pc-text" aria-label="Type on PC" placeholder="Type on PC…"><button id="previous-slide" aria-label="Previous slide">‹</button><button id="next-slide" aria-label="Next slide">›</button></div>
-        </footer>
+
+        <div class="stage-topline">
+          <span id="stage-label">PC screen</span>
+          <button id="immersive-button" class="glass-button" aria-label="Toggle immersive view">⛶</button>
+        </div>
+
+        <nav class="mode-switch" aria-label="Screen source">
+          <button class="mode-button selected" data-mode="pc"><span>▣</span> PC</button>
+          <button class="mode-button" data-mode="camera"><span>◉</span> Camera</button>
+          <button id="tools-open" class="mode-button tools-launch"><span>☷</span> Tools</button>
+        </nav>
+
+        <section id="tools-drawer" class="tools-drawer" aria-label="Tools" hidden>
+          <div class="drawer-grabber"></div>
+          <div class="drawer-heading">
+            <strong>Teaching tools</strong>
+            <button id="tools-close" class="icon-button" aria-label="Close tools">×</button>
+          </div>
+          <div class="drawer-tabs" role="tablist" aria-label="Tool groups">
+            <button class="drawer-tab selected" data-tools="draw" role="tab">Draw</button>
+            <button class="drawer-tab" data-tools="keyboard" role="tab">Keyboard</button>
+            <button class="drawer-tab" data-tools="clipboard" role="tab">Clipboard</button>
+          </div>
+
+          <div class="tool-page" data-page="draw">
+            <div class="tool-row draw-row">
+              <button id="pen-button" class="tool-tile selected"><span>✎</span><strong>Pen</strong></button>
+              <button id="clear-button" class="tool-tile"><span>⌫</span><strong>Clear ink</strong></button>
+              <button id="open-explorer" class="tool-tile pc-only"><span>▤</span><strong>File Explorer</strong></button>
+              <div class="ink-options">
+                <label for="ink-color">Ink colour</label>
+                <input id="ink-color" type="color" value="#ff4b6e" aria-label="Ink colour">
+                <label for="ink-width">Size</label>
+                <input id="ink-width" type="range" min="2" max="14" value="4" aria-label="Ink size">
+              </div>
+            </div>
+            <div class="tool-row slide-row pc-only">
+              <button id="previous-slide" class="tool-tile"><span>←</span><strong>Previous slide</strong></button>
+              <button id="next-slide" class="tool-tile"><span>→</span><strong>Next slide</strong></button>
+            </div>
+            <div class="tool-row camera-row" hidden>
+              <button id="camera-start" class="tool-tile"><span>◉</span><strong>Start camera</strong></button>
+              <button id="camera-stop" class="tool-tile" hidden><span>◌</span><strong>Stop camera</strong></button>
+              <label class="tool-tile file-tile"><span>▧</span><strong>Choose photo</strong><input id="photo-input" type="file" accept="image/*" capture="environment"></label>
+            </div>
+            <p class="drawer-hint" id="draw-hint">Draw with Apple Pencil on the PC view; marks appear on the mirrored iPad screen.</p>
+          </div>
+
+          <div class="tool-page" data-page="keyboard" hidden>
+            <div class="typing-row">
+              <input id="pc-text" aria-label="Type on PC" placeholder="Type text on the PC…" autocomplete="off">
+              <button id="send-text" class="primary">Send</button>
+            </div>
+            <p class="drawer-hint">Choose a modifier, then a key. Modifiers clear after each key press.</p>
+            <div class="key-grid modifiers">
+              <button class="key-button modifier-key" data-modifier="ctrl">Ctrl</button>
+              <button class="key-button modifier-key" data-modifier="alt">Alt</button>
+              <button class="key-button modifier-key" data-modifier="shift">Shift</button>
+              <button class="key-button modifier-key" data-modifier="win">Win</button>
+            </div>
+            <div class="key-grid">
+              <button class="key-button" data-key="up">↑</button>
+              <button class="key-button" data-key="left">←</button>
+              <button class="key-button" data-key="down">↓</button>
+              <button class="key-button" data-key="right">→</button>
+              <button class="key-button" data-key="enter">Enter</button>
+              <button class="key-button" data-key="tab">Tab</button>
+              <button class="key-button" data-key="esc">Esc</button>
+              <button class="key-button" data-key="space">Space</button>
+            </div>
+            <div class="key-grid shortcuts">
+              <button class="key-button" data-shortcut="ctrl+c">Ctrl+C</button>
+              <button class="key-button" data-shortcut="ctrl+v">Ctrl+V</button>
+              <button class="key-button" data-shortcut="ctrl+a">Ctrl+A</button>
+              <button class="key-button" data-shortcut="win+e">Win+E · Files</button>
+              <button class="key-button" data-shortcut="alt+tab">Alt+Tab</button>
+            </div>
+          </div>
+
+          <div class="tool-page" data-page="clipboard" hidden>
+            <div class="clipboard-card">
+              <div><strong>iPad → PC</strong><p>Paste text from the iPad clipboard into the active PC app.</p></div>
+              <button id="paste-ipad" class="primary">Paste to PC</button>
+            </div>
+            <div class="clipboard-card">
+              <div><strong>PC → iPad</strong><p>Request text from the Windows clipboard. Review it, then tap Copy to iPad.</p></div>
+              <button id="request-pc-clipboard" class="primary">Get PC text</button>
+            </div>
+            <textarea id="clipboard-preview" placeholder="PC clipboard text will appear here…" readonly></textarea>
+            <button id="copy-to-ipad" class="secondary" disabled>Copy PC text to iPad</button>
+            <p id="clipboard-message" class="drawer-hint">Clipboard access is only used when you tap a button.</p>
+          </div>
+
+          <div class="drawer-footer">
+            <span id="modifier-hint">Ready</span>
+            <button id="disconnect-button" class="disconnect-button">Disconnect</button>
+          </div>
+        </section>
       </section>
-      <footer class="privacy-note">Classroom Bridge • PC and camera media are sent peer-to-peer when the network allows. No recording or cloud storage.</footer>
+
+      <div id="setup-modal" class="modal-overlay" hidden>
+        <section class="setup-card" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+          <button id="setup-close" class="icon-button modal-close" aria-label="Close connection settings">×</button>
+          <div class="setup-symbol">↔</div>
+          <p class="eyebrow">Classroom Bridge</p>
+          <h1 id="setup-title">Connect your classroom PC</h1>
+          <p class="setup-copy">Start the PC companion, then enter its pairing code here. Keep the companion open while teaching.</p>
+          <label for="pair-code">PC pairing code</label>
+          <input id="pair-code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="12-character code">
+          <label class="remember-option"><input id="remember-code" type="checkbox"><span><strong>Remember this code on this iPad</strong><small>The code is like a key to your PC while its companion is running.</small></span></label>
+          <button id="connect-button" class="primary connect-submit">Connect to PC</button>
+          <button id="continue-offline" class="text-button">Use camera / photo without connecting</button>
+          <p id="connect-message" class="hint" role="status">Pairing uses a direct connection; some school networks may block it.</p>
+        </section>
+      </div>
     </main>
     <script src="/app.js" defer></script>
   </body>

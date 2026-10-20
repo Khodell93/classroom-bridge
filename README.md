@@ -1,10 +1,10 @@
 # Classroom Bridge
 
-Classroom Bridge is a prototype for operating a Windows classroom PC from an iPad while mirroring one iPad app to the classroom display. The app has a remote PC view, Apple Pencil ink overlay, and a camera/photo view with ink overlay.
+Classroom Bridge is a prototype for operating a Windows classroom PC from an iPad while mirroring the iPad app to the classroom display. The iPad interface keeps the PC or camera/photo view full-screen, with setup and teaching tools in separate panels.
 
 ## What is included
 
-- `public/`: Home Screen web app, camera/photo view, drawing canvas, PC controls, and slide navigation.
+- `public/`: Home Screen web app, full-screen PC/camera/photo views, Apple Pencil ink, keyboard shortcuts, and explicit clipboard tools.
 - `worker.js`: short-lived pairing and WebRTC signaling. It does not relay the screen or camera media.
 - `pc-companion/companion_ui.py`: double-click Windows companion window with a pairing code and status.
 - `pc-companion/agent.py`: Windows screen capture, remote mouse/keyboard, and WebRTC signaling.
@@ -16,7 +16,9 @@ Classroom Bridge is a prototype for operating a Windows classroom PC from an iPa
 - iPad and PC need working internet access for signaling and a network path that permits direct WebRTC media. School Wi-Fi may block peer connections; this prototype has no TURN relay fallback.
 - Screen pixels and control input travel directly between PC and iPad when WebRTC connects. Pairing offer/answer data passes through Cloudflare. The camera remains on the iPad and is not sent to the PC.
 - Apple Pencil ink is drawn over the iPad's PC view. It appears on the mirrored TV but is not written into the PowerPoint file.
-- The app currently offers PC mouse control, text typing, File Explorer launch, and basic slide navigation. It is not a production remote-support product.
+- The app offers PC mouse control, typed text, a limited set of Windows shortcut keys, and user-initiated text clipboard transfer in either direction. It is not a production remote-support product.
+- If opted in, a pairing code is saved only in this iPad browser's local storage. It is a connection key while the companion is running, and the code changes when the companion is restarted.
+- Clipboard access is user-initiated. iPad browser clipboard permissions may prompt or block reads; use the on-screen typing field or manually copy text if the browser refuses. See [WebKit's Async Clipboard API notes](https://webkit.org/blog/10855/async-clipboard-api/).
 - The companion should only be installed and used on a school-approved PC. It can view and control the logged-in Windows desktop.
 
 ## Teacher setup
@@ -53,7 +55,7 @@ py -m pip install -r pc-companion\requirements.txt
 py pc-companion\agent.py --signal wss://YOUR-WORKER-URL
 ```
 
-The command-line companion prints a 12-character pairing code. Enter it in Classroom Bridge on the iPad. Select **PC screen** or **Camera / photo**, then use Control Centre's **Screen Mirroring** to mirror the iPad to the classroom TV.
+The command-line companion prints a 12-character pairing code. Enter it in Classroom Bridge on the iPad. Select **PC** or **Camera**, then use Control Centre's **Screen Mirroring** to mirror the iPad to the classroom TV.
 
 For Home Screen installation, open the deployed URL in Safari, tap Share, then **Add to Home Screen**. Allow camera access when asked. If the school account blocks Worker deployment, ask the Cloudflare administrator to authorize it; do not switch the account to a paid plan just to test this prototype.
 
