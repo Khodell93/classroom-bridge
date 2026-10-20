@@ -1,0 +1,10 @@
+{
+  "name": "Classroom Bridge",
+  "short_name": "Classroom Bridge",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101827",
+  "theme_color": "#101827",
+  "orientation": "landscape",
+  "icons": [{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}

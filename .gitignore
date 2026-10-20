@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+pc-companion/build/
+pc-companion/dist/
+*.spec
+.DS_Store

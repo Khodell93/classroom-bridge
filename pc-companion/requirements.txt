@@ -1,0 +1,7 @@
+aiortc>=1.9,<2
+av>=12
+mss>=9
+numpy>=1.26
+Pillow>=10
+PyAutoGUI>=0.9.54
+websockets>=13,<16

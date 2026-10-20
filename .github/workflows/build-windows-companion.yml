@@ -1,0 +1,63 @@
+name: Build Windows companion
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "pc-companion/**"
+      - ".github/workflows/build-windows-companion.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+
+      - name: Install companion and packaging dependencies
+        run: python -m pip install -r pc-companion/requirements.txt pyinstaller
+
+      - name: Build the teacher-facing application
+        working-directory: pc-companion
+        run: >-
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name ClassroomBridge
+          --collect-all aiortc --collect-all av --collect-all aioice
+          --collect-all pylibsrtp --collect-all websockets
+          companion_ui.py
+
+      - name: Prepare download package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item pc-companion/dist/ClassroomBridge.exe package/
+          $quickStart = @'
+          CLASSROOM BRIDGE — WINDOWS COMPANION
+
+          1. Open ClassroomBridge.exe on the school PC and choose Start companion.
+          2. Enter the displayed pairing code in Classroom Bridge on the iPad.
+          3. Leave this window open while teaching. Choose Stop when finished.
+
+          The app captures and controls the signed-in Windows desktop after a paired iPad connects.
+          Use only on a school-approved PC. If Windows or school security blocks the app,
+          ask school IT to review and approve it; do not bypass those controls.
+          '@
+          $quickStart | Set-Content package/Start-Here.txt
+          Compress-Archive -Path package/* -DestinationPath ClassroomBridge-Windows-x64.zip
+
+      - name: Publish build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClassroomBridge-Windows-x64
+          path: ClassroomBridge-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,16 @@
+name = "classroom-bridge"
+main = "worker.js"
+compatibility_date = "2026-10-19"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[durable_objects.bindings]]
+name = "PAIRING_ROOMS"
+class_name = "PairingRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PairingRoom"]
