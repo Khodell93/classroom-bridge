@@ -76,7 +76,7 @@ jobs:
             & "$airplay\gst-inspect-1.0.exe" --exists $element
             if ($LASTEXITCODE -ne 0) { throw "Bundled GStreamer is missing $element" }
           }
-          $receiver = Start-Process "$airplay\uxplay.exe" -ArgumentList "-n","CI check","-nh","-pin","1234","-reg","$env:RUNNER_TEMP\reg.txt","-p","-fs","-vs","d3d11videosink" -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\uxplay.log" -RedirectStandardError "$env:RUNNER_TEMP\uxplay.err"
+          $receiver = Start-Process "$airplay\uxplay.exe" -ArgumentList "-n",'"Classroom Bridge - CI"',"-nh","-pin","1234","-reg","$env:RUNNER_TEMP\reg.txt","-p","-fs","-vs","d3d11videosink" -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\uxplay.log" -RedirectStandardError "$env:RUNNER_TEMP\uxplay.err"
           Start-Sleep -Seconds 10
           Get-Content "$env:RUNNER_TEMP\uxplay.log", "$env:RUNNER_TEMP\uxplay.err"
           if ($receiver.HasExited) { throw "uxplay.exe exited during start-up (code $($receiver.ExitCode))" }
