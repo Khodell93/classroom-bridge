@@ -457,6 +457,20 @@ remoteTypingInput.addEventListener("input", () => {
     remoteInputValue = "";
   }
 });
+remoteTypingInput.addEventListener("beforeinput", event => {
+  const deletionKeys = {
+    deleteContentBackward: "backspace",
+    deleteWordBackward: "backspace",
+    deleteSoftLineBackward: "backspace",
+    deleteContentForward: "delete",
+    deleteWordForward: "delete",
+    deleteSoftLineForward: "delete",
+  };
+  const key = deletionKeys[event.inputType];
+  if (!key) return;
+  event.preventDefault();
+  sendControl({ type: "key", key });
+});
 remoteTypingInput.addEventListener("keydown", event => {
   if (event.key === "Enter") {
     event.preventDefault();
