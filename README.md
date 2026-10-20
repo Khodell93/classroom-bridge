@@ -23,6 +23,14 @@ Classroom Bridge is a prototype for operating a Windows classroom PC from an iPa
 - Clipboard access is user-initiated. iPad browser clipboard permissions may prompt or block reads; use the on-screen typing field or manually copy text if the browser refuses. See [WebKit's Async Clipboard API notes](https://webkit.org/blog/10855/async-clipboard-api/).
 - The companion should only be installed and used on a school-approved PC. It can view and control the logged-in Windows desktop.
 
+## iPad apps (OneDrive, PowerPoint, PDFs)
+
+To teach from any iPad app with its own Apple Pencil tools, the teacher mirrors the iPad to the classroom PC exactly as they would to an Apple TV: Control Centre → **Screen Mirroring** → **Classroom Bridge - _PC name_**. The first time, the iPad asks for the 4-digit PIN shown in the companion window; after that the PC remembers that iPad. While one iPad is mirroring, no other device can take over. Video goes directly over the school network (hardware H.264), so pen writing stays smooth, and nothing passes through Cloudflare.
+
+- **Windows:** the companion bundles [UxPlay](https://github.com/FDH2/UxPlay), a free GPL-licensed AirPlay receiver (licences are in `airplay/licenses`). It starts and stops with the companion and shows the mirrored iPad full-screen. It uses UxPlay's built-in discovery, so Apple Bonjour is not needed. Windows asks once to allow it through the firewall (fixed ports TCP 7000, 7001, 7100 and UDP 6000, 6001, 7011, plus mDNS UDP 5353); school IT may need to approve this.
+- **Mac:** macOS has a built-in AirPlay Receiver (System Settings → General → AirDrop & Handoff), so nothing extra is bundled.
+- The iPad and PC must be on a network that allows AirPlay discovery between them — if an Apple TV works on that network, this should too.
+
 ## Teacher setup
 
 Teachers should use the packaged Windows application, not Python or PowerShell. Open `ClassroomBridge.exe`, choose **Start companion**, and enter the displayed code in Classroom Bridge on the iPad. Keep the PC window open for the lesson and choose **Stop** when finished.

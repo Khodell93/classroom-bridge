@@ -49,13 +49,17 @@ MAC_HOTKEYS = {
 }
 
 
-def get_or_create_pairing_code():
+def settings_dir():
     if sys.platform == "darwin":
-        settings_dir = pathlib.Path.home() / "Library" / "Application Support" / "ClassroomBridge"
+        folder = pathlib.Path.home() / "Library" / "Application Support" / "ClassroomBridge"
     else:
-        settings_dir = pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "ClassroomBridge"
-    settings_dir.mkdir(parents=True, exist_ok=True)
-    code_path = settings_dir / "pairing-code.txt"
+        folder = pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "ClassroomBridge"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def get_or_create_pairing_code():
+    code_path = settings_dir() / "pairing-code.txt"
     try:
         code = code_path.read_text(encoding="ascii").strip().upper()
         if len(code) == 12 and all(character in ROOM_ALPHABET for character in code):

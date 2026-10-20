@@ -10,6 +10,7 @@ from tkinter import ttk
 import pyautogui
 
 from agent import get_or_create_pairing_code, run
+from airplay import AirPlayReceiver, get_or_create_pin, receiver_name
 from desktop_overlay import DesktopInkOverlay
 from presenter import CameraPresenter
 
@@ -22,7 +23,7 @@ class CompanionWindow:
         self.root = root
         platform_name = "Mac" if sys.platform == "darwin" else "PC"
         self.root.title(f"Classroom Bridge {platform_name} Companion")
-        self.root.geometry("520x440" if sys.platform == "darwin" else "500x340")
+        self.root.geometry("520x520" if sys.platform == "darwin" else "500x450")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.messages = queue.Queue()
@@ -33,6 +34,9 @@ class CompanionWindow:
         self.worker = None
         self.overlay = None
         self.presenter = CameraPresenter(root)
+        self.airplay_messages = queue.Queue()
+        self.airplay = AirPlayReceiver(self.airplay_messages.put)
+        self.airplay_status = tk.StringVar(value="")
         self.code = tk.StringVar(value="— — — — — — — — — — — —")
         self.status = tk.StringVar(value="Ready to start")
 
@@ -52,6 +56,13 @@ class CompanionWindow:
         self.copy_button.pack(anchor="center")
         ttk.Separator(frame).pack(fill="x", pady=18)
         ttk.Label(frame, textvariable=self.status, wraplength=440).pack(anchor="w")
+        ttk.Label(frame, text="IPAD APPS (ONEDRIVE, POWERPOINT…)", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(14, 4))
+        if self.airplay.supported:
+            ttk.Label(frame, text=f"Screen Mirroring name: {receiver_name()}    First-time PIN: {get_or_create_pin()}", wraplength=440).pack(anchor="w")
+            self.airplay_status.set("Starts with the companion. Windows may ask once to allow it through the firewall.")
+        else:
+            self.airplay_status.set("Turn on System Settings → General → AirDrop & Handoff → AirPlay Receiver, then on the iPad choose Control Centre → Screen Mirroring → this Mac.")
+        ttk.Label(frame, textvariable=self.airplay_status, wraplength=440).pack(anchor="w")
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=(18, 0))
         self.start_button = ttk.Button(buttons, text="Start companion", command=self.start)
@@ -89,6 +100,7 @@ class CompanionWindow:
         self.stop_event = threading.Event()
         self.worker = threading.Thread(target=self.run_companion, args=(pairing_code, self.stop_event), daemon=True)
         self.worker.start()
+        self.airplay.start()
 
     def run_companion(self, pairing_code, stop_event):
         try:
@@ -98,6 +110,7 @@ class CompanionWindow:
 
     def stop(self):
         self.stop_event.set()
+        self.airplay.stop()
         self.close_overlay()
         self.stop_button.configure(state="disabled")
         self.status.set("Stopping companion…")
@@ -147,7 +160,13 @@ class CompanionWindow:
                 self.status.set(self.messages.get_nowait())
         except queue.Empty:
             pass
+        try:
+            while True:
+                self.airplay_status.set(self.airplay_messages.get_nowait())
+        except queue.Empty:
+            pass
         if self.worker and not self.worker.is_alive():
+            self.airplay.stop()
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
             self.close_overlay()
@@ -156,6 +175,7 @@ class CompanionWindow:
 
     def close(self):
         self.stop_event.set()
+        self.airplay.stop()
         self.close_overlay()
         self.root.destroy()
 

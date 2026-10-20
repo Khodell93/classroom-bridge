@@ -35,6 +35,54 @@ jobs:
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
           companion_ui.py
 
+      - name: Set up MSYS2 for the AirPlay receiver
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-libplist
+            mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good mingw-w64-ucrt-x86_64-gst-plugins-bad
+            mingw-w64-ucrt-x86_64-gst-libav
+
+      # UxPlay 1.74 (development branch) has a built-in mDNS responder, so Windows needs no Apple Bonjour.
+      - name: Build UxPlay AirPlay receiver
+        shell: msys2 {0}
+        env:
+          UXPLAY_COMMIT: a3c064d9111c67a3fc35d5d1e7fbced8712f649a
+        run: |
+          git clone https://github.com/FDH2/UxPlay uxplay-src
+          git -C uxplay-src checkout "$UXPLAY_COMMIT"
+          cmake -S uxplay-src -B uxplay-src/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build uxplay-src/build
+
+      - name: Bundle the AirPlay receiver
+        shell: msys2 {0}
+        run: bash pc-companion/bundle_airplay.sh uxplay-src package/airplay
+
+      - name: Check the bundled receiver runs without MSYS2
+        shell: pwsh
+        run: |
+          $airplay = Resolve-Path package/airplay
+          $env:PATH = "$airplay;C:\Windows\System32;C:\Windows"
+          $env:GST_PLUGIN_PATH = "$airplay\lib\gstreamer-1.0"
+          $env:GST_PLUGIN_SYSTEM_PATH_1_0 = "$airplay\lib\gstreamer-1.0"
+          $env:GST_PLUGIN_SCANNER = "$airplay\libexec\gstreamer-1.0\gst-plugin-scanner.exe"
+          $env:GST_REGISTRY_1_0 = "$env:RUNNER_TEMP\gst-registry.bin"
+          foreach ($element in "appsrc","queue","h264parse","decodebin","avdec_h264","videoconvert","videoflip","d3d11videosink","aacparse","avdec_aac","avdec_alac","audioconvert","audioresample","volume","autoaudiosink") {
+            & "$airplay\gst-inspect-1.0.exe" --exists $element
+            if ($LASTEXITCODE -ne 0) { throw "Bundled GStreamer is missing $element" }
+          }
+          $receiver = Start-Process "$airplay\uxplay.exe" -ArgumentList "-n","CI check","-nh","-pin","1234","-reg","$env:RUNNER_TEMP\reg.txt","-p","-fs","-vs","d3d11videosink" -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\uxplay.log" -RedirectStandardError "$env:RUNNER_TEMP\uxplay.err"
+          Start-Sleep -Seconds 10
+          Get-Content "$env:RUNNER_TEMP\uxplay.log", "$env:RUNNER_TEMP\uxplay.err"
+          if ($receiver.HasExited) { throw "uxplay.exe exited during start-up (code $($receiver.ExitCode))" }
+          Stop-Process -Id $receiver.Id
+          "Bundle size: {0:N0} MB" -f ((Get-ChildItem $airplay -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+
       - name: Prepare download package
         shell: pwsh
         run: |
@@ -49,6 +97,13 @@ jobs:
 
           Apple Pencil annotations on the iPad are mirrored in a click-through
           overlay on the PC display. Use Clear ink in the iPad tools to remove them.
+
+          iPad apps (OneDrive, PowerPoint, PDFs): keep ClassroomBridge.exe next to the
+          "airplay" folder. While the companion runs, open Control Centre on the iPad,
+          tap Screen Mirroring and choose "Classroom Bridge - <PC name>". The first
+          time, enter the PIN shown in the companion window. Windows may ask once to
+          allow the receiver through the firewall (school IT may need to approve).
+          The iPad and PC must be on the same school network, as with an Apple TV.
 
           The app captures and controls the signed-in Windows desktop after a paired iPad connects.
           Use only on a school-approved PC. If Windows or school security blocks the app,
