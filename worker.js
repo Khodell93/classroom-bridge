@@ -16,9 +16,6 @@ export class PairingRoom extends DurableObject {
     }
     if (role !== "ipad" && role !== "pc") return new Response("Invalid role", { status: 400 });
     const currentSockets = this.ctx.getWebSockets();
-    if (currentSockets.some(socket => socket.deserializeAttachment()?.role === role && socket.readyState === WebSocket.OPEN)) {
-      return new Response("That side is already paired", { status: 409 });
-    }
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
@@ -27,6 +24,10 @@ export class PairingRoom extends DurableObject {
     for (const socket of currentSockets) {
       if (socket === server || socket.readyState !== WebSocket.OPEN) continue;
       try {
+        if (socket.deserializeAttachment()?.role === role) {
+          socket.close(1012, "Replaced by a reconnected app");
+          continue;
+        }
         socket.send(JSON.stringify({ type: "peer-ready" }));
         server.send(JSON.stringify({ type: "peer-ready" }));
       } catch {}

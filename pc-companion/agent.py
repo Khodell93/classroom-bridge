@@ -95,17 +95,12 @@ def perform_control(command, screen_width, screen_height):
 
 async def run(signal_url, room, notify=print, stop_event=None):
     stop_event = stop_event or threading.Event()
-    peer = RTCPeerConnection()
-    video_track = DesktopVideo()
-    peer.addTrack(video_track)
-    channel = peer.createDataChannel("controls")
-    channel.on("open", lambda: channel.send(json.dumps({"type": "host-info", "os": "macos" if sys.platform == "darwin" else "windows"})))
     width, height = pyautogui.size()
-    channel.on("message", lambda raw: handle_message(raw, width, height, channel))
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"
     notify("Connecting to Classroom Bridge…")
-    offered = False
+    peer = None
     pending_candidates = []
+    video_track = None
     try:
         tls_context = ssl.create_default_context(cafile=certifi.where())
         async with websockets.connect(pair_url, max_size=48_000, ping_interval=20, ssl=tls_context) as socket:
@@ -116,13 +111,30 @@ async def run(signal_url, room, notify=print, stop_event=None):
                 except asyncio.TimeoutError:
                     continue
                 message = json.loads(raw)
-                if message.get("type") == "peer-ready" and not offered:
-                    offered = True
+                if message.get("type") == "peer-ready":
+                    if peer is not None:
+                        await peer.close()
+                        if video_track:
+                            video_track.capture.close()
+                    peer = RTCPeerConnection()
+                    video_track = DesktopVideo()
+                    peer.addTrack(video_track)
+                    channel = peer.createDataChannel("controls")
+                    channel.on("open", lambda: channel.send(json.dumps({
+                        "type": "host-info",
+                        "os": "macos" if sys.platform == "darwin" else "windows",
+                        "screenWidth": width,
+                        "screenHeight": height,
+                    })))
+                    channel.on("message", lambda raw: handle_message(raw, width, height, channel))
+                    pending_candidates.clear()
                     offer = await peer.createOffer()
                     await peer.setLocalDescription(offer)
                     await socket.send(json.dumps({"type": "offer", "description": {"type": peer.localDescription.type, "sdp": peer.localDescription.sdp}}))
                     notify("iPad found — connecting…")
                 elif message.get("type") == "answer":
+                    if peer is None:
+                        continue
                     description = message.get("description", {})
                     await peer.setRemoteDescription(RTCSessionDescription(sdp=description["sdp"], type=description["type"]))
                     for candidate in pending_candidates:
@@ -130,6 +142,8 @@ async def run(signal_url, room, notify=print, stop_event=None):
                     pending_candidates.clear()
                     notify("Connected. The iPad can now control this desktop.")
                 elif message.get("type") == "candidate" and message.get("candidate"):
+                    if peer is None:
+                        continue
                     candidate_data = message["candidate"]
                     candidate = candidate_from_sdp(candidate_data["candidate"].removeprefix("candidate:"))
                     candidate.sdpMid = candidate_data.get("sdpMid")
@@ -141,8 +155,10 @@ async def run(signal_url, room, notify=print, stop_event=None):
     except KeyboardInterrupt:
         pass
     finally:
-        await peer.close()
-        video_track.capture.close()
+        if peer is not None:
+            await peer.close()
+        if video_track:
+            video_track.capture.close()
         notify("Companion stopped.")
 
 

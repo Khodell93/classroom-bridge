@@ -26,6 +26,13 @@ let drawEnabled = true;
 let drawing = false;
 let previousPoint;
 let hostPlatform = "windows";
+let hostScreenWidth = 1280;
+let hostScreenHeight = 720;
+let activePairingCode = "";
+let sessionActive = false;
+let wakeLockSentinel;
+let reconnectTimer;
+let wasBackgrounded = false;
 
 function setStatus(label, connected = false) {
   statusEl.querySelector("span").textContent = label;
@@ -121,7 +128,7 @@ function updateModeControls() {
   document.querySelectorAll(".pc-only").forEach(element => element.hidden = currentMode !== "pc");
   document.querySelector(".camera-row").hidden = currentMode !== "camera";
   document.querySelector("#draw-hint").textContent = currentMode === "pc"
-    ? "Touch to control the PC. Draw with Apple Pencil; marks stay on the iPad and mirror to the TV."
+    ? "Finger: tap to click, drag to move or drag windows. Apple Pencil draws annotations on the iPad."
     : "Draw on the live camera view or a selected photo with Apple Pencil or touch.";
   setCanvasSizes();
 }
@@ -144,6 +151,15 @@ function closeSetup() {
 }
 
 function clearConnection() {
+  sessionActive = false;
+  activePairingCode = "";
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = undefined;
+  if (wakeLockSentinel) {
+    wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = undefined;
+  }
+  sendControl({ type: "mouse-up" });
   if (controlChannel) {
     controlChannel.onclose = null;
     controlChannel.onmessage = null;
@@ -180,7 +196,10 @@ async function connect() {
     ? "Connecting to the PC companion…"
     : "Connecting, but this browser did not allow saving the pairing code.";
   clearConnection();
+  activePairingCode = code;
+  sessionActive = true;
   setStatus("Connecting…");
+  requestScreenWakeLock();
   try {
     peerConnection = new RTCPeerConnection({ iceServers });
     peerConnection.ontrack = event => {
@@ -190,14 +209,32 @@ async function connect() {
     };
     peerConnection.ondatachannel = event => {
       controlChannel = event.channel;
-      controlChannel.onopen = () => setStatus("PC connected", true);
-      controlChannel.onclose = () => setStatus("PC connection ended");
+      controlChannel.onopen = () => {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+        setStatus("PC connected", true);
+        requestScreenWakeLock();
+      };
+      controlChannel.onclose = () => {
+        if (!sessionActive) return;
+        setStatus("Connection interrupted — reconnecting…");
+        scheduleReconnect(2500);
+      };
       controlChannel.onmessage = clipboardMessage;
     };
     peerConnection.onconnectionstatechange = () => {
-      if (peerConnection.connectionState === "connected") setStatus("PC connected", true);
-      else if (peerConnection.connectionState === "failed") setStatus("Connection failed — school Wi-Fi may block it");
-      else if (peerConnection.connectionState === "disconnected") setStatus("Reconnecting…");
+      if (peerConnection.connectionState === "connected") {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+        setStatus("PC connected", true);
+        requestScreenWakeLock();
+      } else if (peerConnection.connectionState === "failed") {
+        setStatus("Connection lost — reconnecting…");
+        scheduleReconnect(500);
+      } else if (peerConnection.connectionState === "disconnected") {
+        setStatus("Connection interrupted — reconnecting…");
+        scheduleReconnect(5000);
+      }
     };
     peerConnection.onicecandidate = event => {
       if (event.candidate && signalSocket?.readyState === WebSocket.OPEN) signalSocket.send(JSON.stringify({ type: "candidate", candidate: event.candidate }));
@@ -219,6 +256,7 @@ async function connect() {
       setStatus("Pairing service unavailable");
       document.querySelector("#connect-message").textContent = "Could not reach the pairing service. Check the internet connection and try again.";
       document.querySelector("#connect-button").disabled = false;
+      scheduleReconnect(3000);
     };
     signalSocket.onopen = () => {
       closeSetup();
@@ -227,17 +265,70 @@ async function connect() {
       setStatus("Waiting for PC…");
       setCanvasSizes();
     };
-    signalSocket.onclose = () => {
+    const currentSocket = signalSocket;
+    currentSocket.onclose = () => {
+      if (signalSocket !== currentSocket) return;
       if (peerConnection?.connectionState !== "connected") {
-        setStatus("Pairing disconnected");
+        setStatus("Pairing interrupted — reconnecting…");
         document.querySelector("#connect-button").disabled = false;
+        scheduleReconnect(1500);
       }
     };
   } catch (error) {
     setStatus("Could not connect");
     document.querySelector("#connect-message").textContent = error.message;
     document.querySelector("#connect-button").disabled = false;
+    scheduleReconnect(3000);
   }
+}
+
+async function requestScreenWakeLock() {
+  if (!sessionActive || document.hidden || wakeLockSentinel) return;
+  if (!navigator.wakeLock) {
+    statusEl.title = "This iPad browser cannot prevent automatic locking. Keep Classroom Bridge open and return if iPadOS pauses it.";
+    return;
+  }
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request("screen");
+    wakeLockSentinel.addEventListener("release", () => { wakeLockSentinel = undefined; }, { once: true });
+    statusEl.title = "The screen stays awake while Classroom Bridge is visible. Switching apps or manually locking may still pause iPadOS.";
+    if (peerConnection?.connectionState === "connected") setStatus("PC connected · screen awake", true);
+  } catch {
+    wakeLockSentinel = undefined;
+    statusEl.title = "iPadOS may dim or lock the screen. Keep Classroom Bridge open to maintain the connection.";
+  }
+}
+
+function scheduleReconnect(delay = 1500) {
+  if (!sessionActive || document.hidden || reconnectTimer) return;
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = undefined;
+    if (!sessionActive || document.hidden) return;
+    if (peerConnection?.connectionState === "connected" && controlChannel?.readyState === "open") return;
+    codeInput.value = activePairingCode;
+    connect();
+  }, delay);
+}
+
+function desktopPoint(event) {
+  const bounds = pcStage.getBoundingClientRect();
+  const streamAspect = 16 / 9;
+  const stageAspect = bounds.width / bounds.height;
+  const streamWidth = stageAspect > streamAspect ? bounds.height * streamAspect : bounds.width;
+  const streamHeight = stageAspect > streamAspect ? bounds.height : bounds.width / streamAspect;
+  const streamLeft = bounds.left + (bounds.width - streamWidth) / 2;
+  const streamTop = bounds.top + (bounds.height - streamHeight) / 2;
+  const streamX = Math.max(0, Math.min(1, (event.clientX - streamLeft) / streamWidth));
+  const streamY = Math.max(0, Math.min(1, (event.clientY - streamTop) / streamHeight));
+  const desktopAspect = hostScreenWidth / hostScreenHeight;
+  const desktopWidth = desktopAspect > streamAspect ? 1 : desktopAspect / streamAspect;
+  const desktopHeight = desktopAspect > streamAspect ? streamAspect / desktopAspect : 1;
+  const desktopLeft = (1 - desktopWidth) / 2;
+  const desktopTop = (1 - desktopHeight) / 2;
+  return {
+    x: Math.max(0, Math.min(1, (streamX - desktopLeft) / desktopWidth)),
+    y: Math.max(0, Math.min(1, (streamY - desktopTop) / desktopHeight)),
+  };
 }
 
 function selectMode(mode) {
@@ -308,6 +399,8 @@ function clipboardMessage(event) {
   }
   if (message.type === "host-info") {
     hostPlatform = message.os === "macos" ? "macos" : "windows";
+    hostScreenWidth = Number(message.screenWidth) || hostScreenWidth;
+    hostScreenHeight = Number(message.screenHeight) || hostScreenHeight;
     const commandLabel = hostPlatform === "macos" ? "Command" : "Win";
     document.querySelector('[data-modifier="win"]').textContent = commandLabel;
     document.querySelector('[data-shortcut="ctrl+c"]').textContent = hostPlatform === "macos" ? "⌘+C" : "Ctrl+C";
@@ -438,12 +531,13 @@ for (const canvas of [pcInk, cameraInk]) {
 }
 
 pcStage.addEventListener("pointerdown", event => {
-  if (currentMode !== "pc") return;
+  if (currentMode !== "pc" || event.isPrimary === false) return;
   if (event.pointerType === "pen") beginInk(pcInk, event);
   else {
-    const bounds = pcStage.getBoundingClientRect();
-    sendControl({ type: "move", x: (event.clientX - bounds.left) / bounds.width, y: (event.clientY - bounds.top) / bounds.height });
+    const point = desktopPoint(event);
+    sendControl({ type: "move", ...point });
     sendControl({ type: "mouse-down" });
+    event.preventDefault();
   }
   pcStage.setPointerCapture(event.pointerId);
 });
@@ -451,15 +545,44 @@ pcStage.addEventListener("pointermove", event => {
   if (currentMode !== "pc") return;
   if (drawing && event.pointerType === "pen") moveInk(pcInk, event);
   else if (event.pointerType !== "pen") {
-    const bounds = pcStage.getBoundingClientRect();
-    sendControl({ type: "move", x: (event.clientX - bounds.left) / bounds.width, y: (event.clientY - bounds.top) / bounds.height });
+    const point = desktopPoint(event);
+    sendControl({ type: "move", ...point });
   }
 });
 pcStage.addEventListener("pointerup", event => {
   if (event.pointerType === "pen") endInk();
+  else {
+    const point = desktopPoint(event);
+    sendControl({ type: "move", ...point });
+    sendControl({ type: "mouse-up" });
+  }
+});
+pcStage.addEventListener("pointercancel", event => {
+  if (event.pointerType === "pen") endInk();
   else sendControl({ type: "mouse-up" });
 });
-pcStage.addEventListener("pointercancel", endInk);
+pcStage.addEventListener("lostpointercapture", event => {
+  if (event.pointerType !== "pen") sendControl({ type: "mouse-up" });
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    wasBackgrounded = true;
+    sendControl({ type: "mouse-up" });
+    if (wakeLockSentinel) {
+      wakeLockSentinel.release().catch(() => {});
+      wakeLockSentinel = undefined;
+    }
+    return;
+  }
+  requestScreenWakeLock();
+  pcVideo.play().catch(() => {});
+  if (sessionActive && wasBackgrounded) {
+    wasBackgrounded = false;
+    setStatus("Back in Classroom Bridge — reconnecting…");
+    codeInput.value = activePairingCode;
+    connect();
+  }
+});
 window.addEventListener("resize", setCanvasSizes);
 window.addEventListener("beforeunload", () => {
   cameraStream?.getTracks().forEach(track => track.stop());
