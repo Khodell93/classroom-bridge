@@ -45,8 +45,18 @@ def _open(url, accept="application/vnd.github+json"):
     return urllib.request.urlopen(request, timeout=30, context=ssl.create_default_context(cafile=certifi.where()))
 
 
+def remove_previous_version():
+    """Deletes the copy of the old Windows app that the update helper moved aside."""
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        try:
+            pathlib.Path(sys.executable).with_name("ClassroomBridge.exe.old").unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def find_update():
     """Returns the newest release download for this platform if it is newer than this app, else None."""
+    remove_previous_version()
     name = asset_name()
     if not name or not getattr(sys, "frozen", False):
         return None
@@ -138,13 +148,22 @@ def _install_windows(folder, archive):
     if not (unpacked / "ClassroomBridge.exe").exists():
         raise OSError("The update did not contain ClassroomBridge.exe.")
     script = folder / "install.cmd"
+    exe = install_dir / "ClassroomBridge.exe"
+    # Only console-free commands: timeout and tasklist misbehave without a console window. A running .exe can be
+    # renamed (not overwritten), so it is moved aside, and robocopy retries while the old app finishes closing.
     script.write_text(f"""@echo off
-:wait
-rem The one-file .exe runs as a launcher plus the app itself; wait for both to close.
-tasklist /FI "PID eq {os.getpid()}" 2>nul | find "{os.getpid()}" >nul && (timeout /t 1 /nobreak >nul & goto wait)
-tasklist /FI "PID eq {os.getppid()}" 2>nul | find "{os.getppid()}" >nul && (timeout /t 1 /nobreak >nul & goto wait)
-robocopy "{unpacked}" "{install_dir}" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >nul
-start "" "{install_dir}\\ClassroomBridge.exe"
+ping -n 4 127.0.0.1 >nul
+set tries=0
+:replace
+if exist "{exe}" move /y "{exe}" "{exe}.old" >nul 2>&1
+robocopy "{unpacked}" "{install_dir}" /E /R:5 /W:1 /NFL /NDL /NJH /NJS /NP >nul
+if not errorlevel 8 goto launch
+set /a tries+=1
+if %tries% geq 10 goto launch
+ping -n 3 127.0.0.1 >nul
+goto replace
+:launch
+start "" "{exe}"
 """, encoding="utf-8")
     subprocess.Popen(
         ["cmd.exe", "/c", str(script)],

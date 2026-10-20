@@ -23,8 +23,6 @@ with zipfile.ZipFile(archive, "w") as bundle:
     bundle.writestr("ClassroomBridge.exe", "new")
     bundle.writestr("airplay/uxplay.exe", "new")
     bundle.writestr("Start-Here.txt", "new")
-os.getpid = lambda: 999999
-os.getppid = lambda: 999998
 updater._install_windows(folder, archive)
 for _ in range(30):
     if (install / "Start-Here.txt").exists() and (install / "ClassroomBridge.exe").read_text() == "new":
