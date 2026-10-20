@@ -8,4 +8,3 @@ pc-companion/build/
 pc-companion/dist/
 *.spec
 .DS_Store
-ios/ClassroomBridge.xcodeproj
