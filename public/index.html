@@ -40,6 +40,12 @@
             <video id="camera-video" autoplay playsinline muted hidden></video>
             <img id="photo-image" alt="Selected photo or score" hidden>
             <canvas id="camera-ink" class="ink-layer"></canvas>
+            <div id="focus-ring" class="focus-ring" hidden></div>
+            <div id="camera-controls" class="camera-controls" hidden>
+              <button id="camera-zoom" class="glass-button camera-control" aria-label="Change camera zoom" hidden>1×</button>
+              <button id="camera-torch" class="glass-button camera-control" aria-label="Toggle camera light" hidden>ϟ</button>
+              <button id="camera-flip" class="glass-button camera-control" aria-label="Switch between front and back camera">⟲</button>
+            </div>
             <div id="camera-placeholder" class="stage-placeholder">
               <span class="placeholder-icon">◉</span>
               <strong>Camera or photo</strong>
@@ -50,6 +56,7 @@
 
         <div class="stage-topline">
           <span id="stage-label">PC screen</span>
+          <button id="quick-freeze" class="glass-button" aria-label="Freeze or resume the camera" hidden>❚❚ Freeze</button>
           <button id="zoom-reset" class="glass-button" aria-label="Reset PC screen zoom" title="Reset zoom" hidden>1×</button>
           <button id="immersive-button" class="glass-button" aria-label="Toggle immersive view">⛶</button>
         </div>
@@ -90,6 +97,8 @@
             </div>
             <div class="tool-row camera-row" hidden>
               <button id="camera-start" class="tool-tile"><span>◉</span><strong>Start camera</strong></button>
+              <button id="camera-freeze" class="tool-tile" hidden><span>❚❚</span><strong>Freeze</strong></button>
+              <button id="camera-live" class="tool-tile" hidden><span>▶</span><strong>Back to live</strong></button>
               <button id="camera-stop" class="tool-tile" hidden><span>◌</span><strong>Stop camera</strong></button>
               <label class="tool-tile file-tile"><span>▧</span><strong>Choose photo</strong><input id="photo-input" type="file" accept="image/*" capture="environment"></label>
             </div>

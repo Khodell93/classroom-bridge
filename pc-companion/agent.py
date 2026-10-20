@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import io
 import json
 import os
 import pathlib
@@ -16,9 +17,16 @@ import pyautogui
 import pyperclip
 import websockets
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc.codecs import h264, vpx
+from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
-from PIL import Image
+from PIL import Image, ImageOps
+
+# aiortc caps video at 1.5 Mbps (VP8) by default, which blurs text on a classroom display.
+vpx.MAX_BITRATE = h264.MAX_BITRATE = 6_000_000
+vpx.DEFAULT_BITRATE = h264.DEFAULT_BITRATE = 2_000_000
+MAX_STILL_BYTES = 25_000_000
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
@@ -113,6 +121,96 @@ class DesktopVideo(VideoStreamTrack):
         return frame
 
 
+def fit_size(width, height, screen_width, screen_height):
+    scale = min(screen_width / width, screen_height / height)
+    return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
+
+
+async def relay_camera(track, screen_size, on_view):
+    """Shows the iPad camera on the PC, always converting only the newest frame so latency never builds up."""
+    latest = None
+    arrived = asyncio.Event()
+
+    async def receive():
+        nonlocal latest
+        try:
+            while True:
+                latest = await track.recv()
+                arrived.set()
+        except MediaStreamError:
+            latest = None
+            arrived.set()
+
+    receiver = asyncio.ensure_future(receive())
+    try:
+        while not receiver.done() or latest is not None:
+            await arrived.wait()
+            arrived.clear()
+            frame, latest = latest, None
+            if frame is None:
+                continue
+            size = fit_size(frame.width, frame.height, *screen_size)
+            image = await asyncio.to_thread(lambda: frame.reformat(width=size[0], height=size[1], format="rgb24").to_image())
+            on_view({"type": "camera-frame", "image": image})
+    finally:
+        receiver.cancel()
+
+
+def decode_still(data, screen_size):
+    image = Image.open(io.BytesIO(data))
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    return image.resize(fit_size(image.width, image.height, *screen_size), Image.Resampling.LANCZOS)
+
+
+class StillReceiver:
+    """Reassembles full-resolution photos sent in chunks over the iPad's media data channel."""
+
+    def __init__(self, screen_size, on_view):
+        self.screen_size = screen_size
+        self.on_view = on_view
+        self.reset()
+
+    def reset(self):
+        self.still_id = None
+        self.expected = 0
+        self.chunks = []
+        self.received = 0
+
+    def handle(self, raw):
+        if isinstance(raw, bytes):
+            if self.still_id is None:
+                return
+            self.received += len(raw)
+            if self.received > min(self.expected, MAX_STILL_BYTES):
+                self.reset()
+                return
+            self.chunks.append(raw)
+            return
+        try:
+            message = json.loads(raw)
+        except ValueError:
+            return
+        if message.get("type") == "still-start":
+            self.reset()
+            try:
+                self.expected = int(message.get("size", 0))
+            except (TypeError, ValueError):
+                return
+            if 0 < self.expected <= MAX_STILL_BYTES:
+                self.still_id = message.get("id")
+        elif message.get("type") == "still-end" and message.get("id") == self.still_id and self.received == self.expected:
+            data = b"".join(self.chunks)
+            self.reset()
+            asyncio.ensure_future(self.show(data))
+
+    async def show(self, data):
+        try:
+            image = await asyncio.to_thread(decode_still, data, self.screen_size)
+        except (OSError, ValueError, Image.DecompressionBombError):
+            return
+        self.on_view({"type": "still", "image": image})
+
+
 def perform_control(command, screen_width, screen_height):
     kind = command.get("type")
     if kind == "screen-zoom":
@@ -154,7 +252,7 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
 
 
-async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
+async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None):
     stop_event = stop_event or threading.Event()
     width, height = pyautogui.size()
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"
@@ -182,13 +280,22 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
                     peer.addTrack(video_track)
                     channel = peer.createDataChannel("controls")
                     ink_channel = peer.createDataChannel("ink", ordered=True, maxRetransmits=0)
+                    media_channel = peer.createDataChannel("media", ordered=True)
+                    if on_view:
+                        stills = StillReceiver((width, height), on_view)
+                        media_channel.on("message", stills.handle)
+
+                        @peer.on("track")
+                        def on_track(track):
+                            if track.kind == "video":
+                                asyncio.ensure_future(relay_camera(track, (width, height), on_view))
                     channel.on("open", lambda: channel.send(json.dumps({
                         "type": "host-info",
                         "os": "macos" if sys.platform == "darwin" else "windows",
                         "screenWidth": width,
                         "screenHeight": height,
                     })))
-                    channel.on("message", lambda raw: handle_message(raw, width, height, channel, on_ink))
+                    channel.on("message", lambda raw: handle_message(raw, width, height, channel, on_ink, on_view))
                     ink_channel.on("message", lambda raw: handle_message(raw, width, height, on_ink=on_ink))
                     pending_candidates.clear()
                     offer = await peer.createOffer()
@@ -222,13 +329,18 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
             await peer.close()
         if video_track:
             video_track.capture.close()
+        if on_view:
+            on_view({"type": "view", "mode": "pc"})
         notify("Companion stopped.")
 
 
-def handle_message(raw, width, height, channel=None, on_ink=None):
+def handle_message(raw, width, height, channel=None, on_ink=None, on_view=None):
     try:
         command = json.loads(raw)
-        if command.get("type") == "clipboard-read":
+        if command.get("type") == "view":
+            if on_view and command.get("mode") in ("pc", "live"):
+                on_view({"type": "view", "mode": command["mode"]})
+        elif command.get("type") == "clipboard-read":
             if channel and channel.readyState == "open":
                 try:
                     response = {"type": "clipboard-text", "text": pyperclip.paste()[:20000]}

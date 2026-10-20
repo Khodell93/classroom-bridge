@@ -11,6 +11,7 @@ import pyautogui
 
 from agent import get_or_create_pairing_code, run
 from desktop_overlay import DesktopInkOverlay
+from presenter import CameraPresenter
 
 
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
@@ -31,6 +32,7 @@ class CompanionWindow:
         self.stop_event = threading.Event()
         self.worker = None
         self.overlay = None
+        self.presenter = CameraPresenter(root)
         self.code = tk.StringVar(value="— — — — — — — — — — — —")
         self.status = tk.StringVar(value="Ready to start")
 
@@ -90,7 +92,7 @@ class CompanionWindow:
 
     def run_companion(self, pairing_code, stop_event):
         try:
-            asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command))
+            asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.presenter.handle))
         except Exception as error:
             self.messages.put(f"Could not start: {error}")
 
@@ -149,6 +151,7 @@ class CompanionWindow:
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
             self.close_overlay()
+            self.presenter.hide()
         self.root.after(100, self.poll_messages)
 
     def close(self):

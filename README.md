@@ -14,7 +14,8 @@ Classroom Bridge is a prototype for operating a Windows classroom PC from an iPa
 
 - The Windows PC must remain awake, logged in, and running the companion.
 - iPad and PC need working internet access for signaling and a network path that permits direct WebRTC media. School Wi-Fi may block peer connections; this prototype has no TURN relay fallback.
-- Screen pixels and control input travel directly between PC and iPad when WebRTC connects. Pairing offer/answer data passes through Cloudflare. The camera remains on the iPad and is not sent to the PC.
+- Screen pixels, the iPad camera and control input travel directly between PC and iPad when WebRTC connects. Pairing offer/answer data passes through Cloudflare; no video does.
+- Camera / visualiser: the iPad captures at up to 4K and sends live video (up to 1080p, up to 8 Mbps, tuned for sharp detail) to the companion, which shows it full-screen on the classroom display. **Freeze** sends a full-resolution still; chosen photos are sent the same way (up to 4K). Apple Pencil ink on the camera or photo appears on the classroom display. In live view a finger taps to focus and pinches to zoom; zoom, focus, light and camera switching appear only when the iPad's browser exposes them.
 - Apple Pencil ink is drawn over the iPad's PC view. It appears on the mirrored TV but is not written into the PowerPoint file.
 - Pinching the PC view also invokes the host computer's built-in screen magnifier, so the zoom is visible on the classroom display. Windows uses Magnifier; Mac requires **System Settings → Accessibility → Zoom → Use keyboard shortcuts to zoom**. Magnification is stepped on the host and resets with the iPad's `1×` control or when the app disconnects.
 - The app offers PC mouse control, typed text, a limited set of Windows shortcut keys, and user-initiated text clipboard transfer in either direction. It is not a production remote-support product.
