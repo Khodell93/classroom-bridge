@@ -9,6 +9,7 @@ const setupModal = document.querySelector("#setup-modal");
 const pcVideo = document.querySelector("#pc-video");
 const pcPlaceholder = document.querySelector("#pc-placeholder");
 const pcStage = document.querySelector("#pc-stage");
+const pcScreen = document.querySelector("#pc-screen");
 const pcInk = document.querySelector("#pc-ink");
 const cameraVideo = document.querySelector("#camera-video");
 const cameraInk = document.querySelector("#camera-ink");
@@ -40,6 +41,12 @@ let mousePointerStart;
 let mousePointerMoved = false;
 let remoteInputValue = "";
 let lastTap = null;
+let pcZoom = 1;
+let pcPanX = 0;
+let pcPanY = 0;
+let pinchGesture;
+const activeTouches = new Map();
+const suppressedTouches = new Set();
 
 function setStatus(label, connected = false) {
   statusEl.querySelector("span").textContent = label;
@@ -163,7 +170,7 @@ function updateModeControls() {
   document.querySelectorAll(".pc-only").forEach(element => element.hidden = currentMode !== "pc");
   document.querySelector(".camera-row").hidden = currentMode !== "camera";
   document.querySelector("#draw-hint").textContent = currentMode === "pc"
-    ? "Finger controls the mouse. Apple Pencil annotations appear on both screens; Clear ink removes them."
+    ? "Finger controls the mouse; pinch to zoom the view. Apple Pencil annotations appear on both screens."
     : "Draw on the live camera view or a selected photo with Apple Pencil or touch.";
   setCanvasSizes();
 }
@@ -186,6 +193,7 @@ function closeSetup() {
 }
 
 function clearConnection() {
+  resetPcZoom();
   sessionActive = false;
   activePairingCode = "";
   window.clearTimeout(reconnectTimer);
@@ -353,14 +361,16 @@ function scheduleReconnect(delay = 1500) {
 
 function desktopPoint(event) {
   const bounds = pcStage.getBoundingClientRect();
+  const stageX = bounds.left + (event.clientX - bounds.left - pcPanX) / pcZoom;
+  const stageY = bounds.top + (event.clientY - bounds.top - pcPanY) / pcZoom;
   const streamAspect = 16 / 9;
   const stageAspect = bounds.width / bounds.height;
   const streamWidth = stageAspect > streamAspect ? bounds.height * streamAspect : bounds.width;
   const streamHeight = stageAspect > streamAspect ? bounds.height : bounds.width / streamAspect;
   const streamLeft = bounds.left + (bounds.width - streamWidth) / 2;
   const streamTop = bounds.top + (bounds.height - streamHeight) / 2;
-  const streamX = Math.max(0, Math.min(1, (event.clientX - streamLeft) / streamWidth));
-  const streamY = Math.max(0, Math.min(1, (event.clientY - streamTop) / streamHeight));
+  const streamX = Math.max(0, Math.min(1, (stageX - streamLeft) / streamWidth));
+  const streamY = Math.max(0, Math.min(1, (stageY - streamTop) / streamHeight));
   const desktopAspect = hostScreenWidth / hostScreenHeight;
   const desktopWidth = desktopAspect > streamAspect ? 1 : desktopAspect / streamAspect;
   const desktopHeight = desktopAspect > streamAspect ? streamAspect / desktopAspect : 1;
@@ -370,6 +380,50 @@ function desktopPoint(event) {
     x: Math.max(0, Math.min(1, (streamX - desktopLeft) / desktopWidth)),
     y: Math.max(0, Math.min(1, (streamY - desktopTop) / desktopHeight)),
   };
+}
+
+function applyPcZoom() {
+  pcScreen.style.transform = `translate3d(${pcPanX}px, ${pcPanY}px, 0) scale(${pcZoom})`;
+  document.querySelector("#zoom-reset").hidden = currentMode !== "pc" || pcZoom <= 1.01;
+}
+
+function resetPcZoom() {
+  pcZoom = 1;
+  pcPanX = 0;
+  pcPanY = 0;
+  pinchGesture = undefined;
+  activeTouches.clear();
+  suppressedTouches.clear();
+  applyPcZoom();
+}
+
+function startPinch() {
+  if (activeTouches.size < 2) return;
+  const [first, second] = [...activeTouches.values()].slice(0, 2);
+  const bounds = pcStage.getBoundingClientRect();
+  const centerX = (first.x + second.x) / 2;
+  const centerY = (first.y + second.y) / 2;
+  pinchGesture = {
+    distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
+    zoom: pcZoom,
+    anchorX: (centerX - bounds.left - pcPanX) / pcZoom,
+    anchorY: (centerY - bounds.top - pcPanY) / pcZoom,
+  };
+  mousePointerStart = undefined;
+  lastTap = null;
+  sendControl({ type: "mouse-up" });
+}
+
+function updatePinch() {
+  if (activeTouches.size < 2 || !pinchGesture) return;
+  const [first, second] = [...activeTouches.values()].slice(0, 2);
+  const bounds = pcStage.getBoundingClientRect();
+  const centerX = (first.x + second.x) / 2;
+  const centerY = (first.y + second.y) / 2;
+  pcZoom = Math.max(1, Math.min(4, pinchGesture.zoom * Math.hypot(second.x - first.x, second.y - first.y) / pinchGesture.distance));
+  pcPanX = Math.max(bounds.width * (1 - pcZoom), Math.min(0, centerX - bounds.left - pinchGesture.anchorX * pcZoom));
+  pcPanY = Math.max(bounds.height * (1 - pcZoom), Math.min(0, centerY - bounds.top - pinchGesture.anchorY * pcZoom));
+  applyPcZoom();
 }
 
 function selectMode(mode) {
@@ -463,6 +517,7 @@ function clipboardMessage(event) {
 document.querySelector("#connect-button").addEventListener("click", connect);
 codeInput.addEventListener("keydown", event => { if (event.key === "Enter") connect(); });
 document.querySelector("#setup-open").addEventListener("click", openSetup);
+document.querySelector("#zoom-reset").addEventListener("click", resetPcZoom);
 document.querySelector("#placeholder-setup").addEventListener("click", openSetup);
 document.querySelector("#setup-close").addEventListener("click", closeSetup);
 document.querySelector("#continue-offline").addEventListener("click", closeSetup);
@@ -608,7 +663,17 @@ for (const canvas of [pcInk, cameraInk]) {
 }
 
 pcStage.addEventListener("pointerdown", event => {
-  if (currentMode !== "pc" || event.isPrimary === false) return;
+  if (currentMode !== "pc") return;
+  if (event.pointerType === "touch") {
+    activeTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (activeTouches.size >= 2) {
+      if (!pinchGesture) startPinch();
+      pcStage.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+  }
+  if (event.isPrimary === false) return;
   if (event.pointerType === "pen") beginInk(pcInk, event);
   else {
     const point = desktopPoint(event);
@@ -622,6 +687,18 @@ pcStage.addEventListener("pointerdown", event => {
 });
 pcStage.addEventListener("pointermove", event => {
   if (currentMode !== "pc") return;
+  if (event.pointerType === "touch" && suppressedTouches.has(event.pointerId)) {
+    event.preventDefault();
+    return;
+  }
+  if (event.pointerType === "touch" && activeTouches.has(event.pointerId)) {
+    activeTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pinchGesture) {
+      updatePinch();
+      event.preventDefault();
+      return;
+    }
+  }
   if (drawing && event.pointerType === "pen") moveInk(pcInk, event);
   else if (event.pointerType !== "pen") {
     if (mousePointerStart && Math.hypot(event.clientX - mousePointerStart.x, event.clientY - mousePointerStart.y) > 10) mousePointerMoved = true;
@@ -632,6 +709,22 @@ pcStage.addEventListener("pointermove", event => {
 pcStage.addEventListener("pointerup", event => {
   if (event.pointerType === "pen") endInk();
   else {
+    if (event.pointerType === "touch") {
+      activeTouches.delete(event.pointerId);
+      if (pinchGesture) {
+        pinchGesture = undefined;
+        for (const pointerId of activeTouches.keys()) suppressedTouches.add(pointerId);
+        mousePointerStart = undefined;
+        lastTap = null;
+        sendControl({ type: "mouse-up" });
+        event.preventDefault();
+        return;
+      }
+      if (suppressedTouches.delete(event.pointerId)) {
+        event.preventDefault();
+        return;
+      }
+    }
     const point = desktopPoint(event);
     sendControl({ type: "move", ...point });
     sendControl({ type: "mouse-up" });
@@ -655,6 +748,19 @@ pcStage.addEventListener("pointerup", event => {
 pcStage.addEventListener("pointercancel", event => {
   if (event.pointerType === "pen") endInk();
   else {
+    if (event.pointerType === "touch") {
+      activeTouches.delete(event.pointerId);
+      if (pinchGesture) {
+        pinchGesture = undefined;
+        for (const pointerId of activeTouches.keys()) suppressedTouches.add(pointerId);
+      }
+      if (suppressedTouches.delete(event.pointerId)) {
+        mousePointerStart = undefined;
+        sendControl({ type: "mouse-up" });
+        event.preventDefault();
+        return;
+      }
+    }
     sendControl({ type: "mouse-up" });
     mousePointerStart = undefined;
   }
