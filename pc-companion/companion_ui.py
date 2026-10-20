@@ -8,7 +8,10 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
+import pyautogui
+
 from agent import ROOM_ALPHABET, run
+from desktop_overlay import DesktopInkOverlay
 
 
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
@@ -25,6 +28,7 @@ class CompanionWindow:
         self.messages = queue.Queue()
         self.stop_event = threading.Event()
         self.worker = None
+        self.overlay = None
         self.code = tk.StringVar(value="— — — — — — — — — — — —")
         self.status = tk.StringVar(value="Ready to start")
 
@@ -66,6 +70,12 @@ class CompanionWindow:
             except (AttributeError, OSError):
                 self.status.set("Could not check macOS Accessibility permission. Enable it in System Settings → Privacy & Security → Accessibility, then restart this app.")
                 return
+        try:
+            screen_width, screen_height = pyautogui.size()
+            self.overlay = DesktopInkOverlay(self.root, screen_width, screen_height)
+        except Exception as error:
+            self.status.set(f"Could not prepare the desktop annotation overlay: {error}")
+            return
         pairing_code = "".join(secrets.choice(ROOM_ALPHABET) for _ in range(12))
         self.code.set(" ".join(pairing_code))
         self.status.set("Starting companion…")
@@ -78,14 +88,33 @@ class CompanionWindow:
 
     def run_companion(self, pairing_code, stop_event):
         try:
-            asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event))
+            asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command))
         except Exception as error:
             self.messages.put(f"Could not start: {error}")
 
     def stop(self):
         self.stop_event.set()
+        self.close_overlay()
         self.stop_button.configure(state="disabled")
         self.status.set("Stopping companion…")
+
+    def queue_ink_command(self, command):
+        try:
+            self.root.after(0, self.apply_ink_command, command)
+        except tk.TclError:
+            pass
+
+    def apply_ink_command(self, command):
+        if self.overlay is not None:
+            self.overlay.apply(command)
+
+    def close_overlay(self):
+        if self.overlay is not None:
+            try:
+                self.overlay.close()
+            except Exception:
+                pass
+            self.overlay = None
 
     def copy_code(self):
         self.root.clipboard_clear()
@@ -101,10 +130,12 @@ class CompanionWindow:
         if self.worker and not self.worker.is_alive():
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
+            self.close_overlay()
         self.root.after(100, self.poll_messages)
 
     def close(self):
         self.stop_event.set()
+        self.close_overlay()
         self.root.destroy()
 
     def open_privacy(self, section):

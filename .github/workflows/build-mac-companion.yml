@@ -41,6 +41,7 @@ jobs:
           --name ClassroomBridge
           --collect-all aiortc --collect-all av --collect-all aioice
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
+          --collect-all AppKit --collect-all Foundation --collect-all Quartz
           companion_ui.py
 
       - name: Prepare download package
@@ -56,6 +57,9 @@ jobs:
              under Screen Recording and Accessibility, then quit and reopen it.
           3. Enter the pairing code in Classroom Bridge on the iPad.
           4. Leave the companion open while teaching; choose Stop when finished.
+
+          Apple Pencil annotations on the iPad are mirrored in a click-through
+          overlay on the Mac display. Use Clear ink in the iPad tools to remove them.
 
           The app streams and controls this Mac's desktop after a paired iPad connects.
           This build is not signed or notarized. Distribute only through school-approved

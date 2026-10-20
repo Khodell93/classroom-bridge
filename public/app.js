@@ -24,6 +24,7 @@ let currentMode = "pc";
 let currentToolsPage = "draw";
 let drawEnabled = true;
 let drawing = false;
+let drawingCanvas;
 let previousPoint;
 let hostPlatform = "windows";
 let hostScreenWidth = 1280;
@@ -103,6 +104,13 @@ function beginInk(canvas, event) {
   context.lineWidth = Number(document.querySelector("#ink-width").value) * ratio;
   previousPoint = { x: (event.clientX - bounds.left) * canvas.width / bounds.width, y: (event.clientY - bounds.top) * canvas.height / bounds.height };
   drawing = true;
+  drawingCanvas = canvas;
+  if (canvas === pcInk) {
+    const point = desktopPoint(event);
+    const stageBounds = pcStage.getBoundingClientRect();
+    const streamWidth = Math.min(stageBounds.width, stageBounds.height * 16 / 9);
+    sendControl({ type: "ink-start", ...point, color: context.strokeStyle, width: Number(document.querySelector("#ink-width").value) * hostScreenWidth / streamWidth });
+  }
   if (event.currentTarget === canvas) canvas.setPointerCapture(event.pointerId);
   return true;
 }
@@ -117,11 +125,14 @@ function moveInk(canvas, event) {
   context.lineTo(nextPoint.x, nextPoint.y);
   context.stroke();
   previousPoint = nextPoint;
+  if (canvas === pcInk) sendControl({ type: "ink-move", ...desktopPoint(event) });
 }
 
 function endInk() {
+  if (drawingCanvas === pcInk) sendControl({ type: "ink-end" });
   drawing = false;
   previousPoint = undefined;
+  drawingCanvas = undefined;
 }
 
 function updateModeControls() {
@@ -132,7 +143,7 @@ function updateModeControls() {
   document.querySelectorAll(".pc-only").forEach(element => element.hidden = currentMode !== "pc");
   document.querySelector(".camera-row").hidden = currentMode !== "camera";
   document.querySelector("#draw-hint").textContent = currentMode === "pc"
-    ? "Finger: tap to click, drag to move or drag windows. Apple Pencil draws annotations on the iPad."
+    ? "Finger controls the mouse. Apple Pencil annotations appear on both screens; Clear ink removes them."
     : "Draw on the live camera view or a selected photo with Apple Pencil or touch.";
   setCanvasSizes();
 }
@@ -343,6 +354,7 @@ function selectMode(mode) {
 
 function clearInk() {
   for (const canvas of [pcInk, cameraInk]) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  if (currentMode === "pc") sendControl({ type: "ink-clear" });
 }
 
 function handleKey(key) {

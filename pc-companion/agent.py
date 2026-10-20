@@ -97,7 +97,7 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
 
 
-async def run(signal_url, room, notify=print, stop_event=None):
+async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
     stop_event = stop_event or threading.Event()
     width, height = pyautogui.size()
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"
@@ -130,7 +130,7 @@ async def run(signal_url, room, notify=print, stop_event=None):
                         "screenWidth": width,
                         "screenHeight": height,
                     })))
-                    channel.on("message", lambda raw: handle_message(raw, width, height, channel))
+                    channel.on("message", lambda raw: handle_message(raw, width, height, channel, on_ink))
                     pending_candidates.clear()
                     offer = await peer.createOffer()
                     await peer.setLocalDescription(offer)
@@ -166,7 +166,7 @@ async def run(signal_url, room, notify=print, stop_event=None):
         notify("Companion stopped.")
 
 
-def handle_message(raw, width, height, channel=None):
+def handle_message(raw, width, height, channel=None, on_ink=None):
     try:
         command = json.loads(raw)
         if command.get("type") == "clipboard-read":
@@ -176,6 +176,9 @@ def handle_message(raw, width, height, channel=None):
                 except pyperclip.PyperclipException:
                     response = {"type": "clipboard-error"}
                 channel.send(json.dumps(response))
+        elif isinstance(command.get("type"), str) and command["type"].startswith("ink-"):
+            if on_ink:
+                on_ink(command)
         else:
             perform_control(command, width, height)
     except pyperclip.PyperclipException:

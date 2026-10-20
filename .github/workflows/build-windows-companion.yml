@@ -47,6 +47,9 @@ jobs:
           2. Enter the displayed pairing code in Classroom Bridge on the iPad.
           3. Leave this window open while teaching. Choose Stop when finished.
 
+          Apple Pencil annotations on the iPad are mirrored in a click-through
+          overlay on the PC display. Use Clear ink in the iPad tools to remove them.
+
           The app captures and controls the signed-in Windows desktop after a paired iPad connects.
           Use only on a school-approved PC. If Windows or school security blocks the app,
           ask school IT to review and approve it; do not bypass those controls.
