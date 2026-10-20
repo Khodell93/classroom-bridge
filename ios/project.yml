@@ -1,0 +1,62 @@
+name: ClassroomBridge
+options:
+  bundleIdPrefix: com.classroombridge
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Set DEVELOPMENT_TEAM in Xcode (Signing & Capabilities) before installing on an iPad.
+targets:
+  ClassroomBridge:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - App
+      - Shared
+    entitlements:
+      path: App/ClassroomBridge.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.classroombridge.shared]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Classroom Bridge
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.classroombridge.app
+        TARGETED_DEVICE_FAMILY: "2"
+    dependencies:
+      - target: BroadcastExtension
+        embed: true
+  BroadcastExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - BroadcastExtension
+      - Shared
+    entitlements:
+      path: BroadcastExtension/BroadcastExtension.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.classroombridge.shared]
+    info:
+      path: BroadcastExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Classroom Bridge Screen
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.classroombridge.app.broadcast
+        TARGETED_DEVICE_FAMILY: "2"

@@ -1,0 +1,29 @@
+name: Build iPad app
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/build-ios-app.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile iPad app and broadcast extension
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Build for iPad simulator (unsigned compile check)
+        working-directory: ios
+        run: >-
+          xcodebuild -project ClassroomBridge.xcodeproj -scheme ClassroomBridge
+          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build

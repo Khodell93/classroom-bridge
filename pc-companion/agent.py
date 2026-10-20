@@ -154,7 +154,7 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
 
 
-async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
+async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_screen=None):
     stop_event = stop_event or threading.Event()
     width, height = pyautogui.size()
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"
@@ -164,15 +164,22 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None):
     video_track = None
     try:
         tls_context = ssl.create_default_context(cafile=certifi.where())
-        async with websockets.connect(pair_url, max_size=48_000, ping_interval=20, ssl=tls_context) as socket:
+        async with websockets.connect(pair_url, max_size=1_000_000, ping_interval=20, ssl=tls_context) as socket:
             notify("Ready — enter the pairing code on the iPad.")
             while not stop_event.is_set():
                 try:
                     raw = await asyncio.wait_for(socket.recv(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
+                if isinstance(raw, bytes):
+                    if on_screen:
+                        on_screen({"type": "screen-frame", "jpeg": raw})
+                    continue
                 message = json.loads(raw)
-                if message.get("type") == "peer-ready":
+                if message.get("type") in ("screen-start", "screen-stop"):
+                    if on_screen:
+                        on_screen(message)
+                elif message.get("type") == "peer-ready":
                     if peer is not None:
                         await peer.close()
                         if video_track:

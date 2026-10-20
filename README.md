@@ -22,6 +22,21 @@ Classroom Bridge is a prototype for operating a Windows classroom PC from an iPa
 - Clipboard access is user-initiated. iPad browser clipboard permissions may prompt or block reads; use the on-screen typing field or manually copy text if the browser refuses. See [WebKit's Async Clipboard API notes](https://webkit.org/blog/10855/async-clipboard-api/).
 - The companion should only be installed and used on a school-approved PC. It can view and control the logged-in Windows desktop.
 
+## iPad Apps mode (native iPad app)
+
+A Home Screen web app cannot see other apps, so `ios/` holds a native SwiftUI app with a ReplayKit broadcast extension. The teacher enters the companion's pairing code once (it is remembered), taps **Share iPad screen**, approves Apple's broadcast prompt, then switches to OneDrive, PowerPoint or any PDF app and uses that app's own Apple Pencil tools. The whole iPad screen appears full-screen on the PC/Mac companion (press Esc on the display to dismiss it; it also closes when the broadcast stops). Sign-in and saving stay inside Microsoft's apps.
+
+How it works: the broadcast extension sends compressed JPEG frames (about 8 per second, up to 1280 px wide) to the Worker as a `screen` role, and the Worker forwards them only to the paired `pc` socket. Unlike PC/camera mode this video is relayed through Cloudflare, not sent peer-to-peer; frames are not stored. It works on networks that block WebRTC, but it counts towards Worker/Durable Object request limits, so check the pricing links below for long lessons.
+
+Building it needs a Mac with Xcode and an Apple Developer team:
+
+```sh
+brew install xcodegen
+cd ios && xcodegen generate && open ClassroomBridge.xcodeproj
+```
+
+Set your Team on both targets (Signing & Capabilities) and, if you change the bundle prefix, update `SharedSettings.swift`, the app-group id and `ios/project.yml` to match. The `Build iPad app` workflow only compile-checks the project unsigned; it does not produce an installable app. This part has not been compiled or run on a device yet.
+
 ## Teacher setup
 
 Teachers should use the packaged Windows application, not Python or PowerShell. Open `ClassroomBridge.exe`, choose **Start companion**, and enter the displayed code in Classroom Bridge on the iPad. Keep the PC window open for the lesson and choose **Stop** when finished.

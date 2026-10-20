@@ -11,6 +11,7 @@ import pyautogui
 
 from agent import get_or_create_pairing_code, run
 from desktop_overlay import DesktopInkOverlay
+from screen_viewer import IPadScreenViewer
 
 
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
@@ -31,6 +32,7 @@ class CompanionWindow:
         self.stop_event = threading.Event()
         self.worker = None
         self.overlay = None
+        self.viewer = IPadScreenViewer(root)
         self.code = tk.StringVar(value="— — — — — — — — — — — —")
         self.status = tk.StringVar(value="Ready to start")
 
@@ -90,13 +92,14 @@ class CompanionWindow:
 
     def run_companion(self, pairing_code, stop_event):
         try:
-            asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command))
+            asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.viewer.handle))
         except Exception as error:
             self.messages.put(f"Could not start: {error}")
 
     def stop(self):
         self.stop_event.set()
         self.close_overlay()
+        self.root.after(0, self.viewer.hide)
         self.stop_button.configure(state="disabled")
         self.status.set("Stopping companion…")
 
@@ -149,6 +152,7 @@ class CompanionWindow:
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
             self.close_overlay()
+            self.viewer.hide()
         self.root.after(100, self.poll_messages)
 
     def close(self):
