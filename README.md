@@ -39,6 +39,17 @@ The Windows executable is produced by the GitHub Actions workflow at `.github/wo
 
 The companion captures and controls the signed-in Windows desktop after the iPad pairs. Use it only on a school-approved PC and close it when finished.
 
+## Automatic deploys
+
+The **Deploy web app** workflow publishes the iPad web app and Worker whenever they change on `main` or the development branch. It needs two repository secrets, added once:
+
+1. In Cloudflare, go to **My Profile → API Tokens → Create Token**, use the **Edit Cloudflare Workers** template, choose your account, and create it. Copy the token.
+2. Copy your **Account ID** from the Cloudflare dashboard (Workers & Pages overview, right-hand side).
+3. In GitHub, open the repository's **Settings → Secrets and variables → Actions → New repository secret** and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+4. Run it once from **Actions → Deploy web app → Run workflow**.
+
+Until the secrets exist the workflow just shows a warning and skips the deploy.
+
 ## Deploy to your Cloudflare account
 
 Cloudflare Workers Free currently includes Durable Objects within documented limits. The WebSocket Durable Object uses the hibernation API so an idle pairing session does not stay actively executing. Free quotas can still be exceeded, at which point requests may fail. Review the current [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) before deployment.
