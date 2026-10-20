@@ -8,3 +8,4 @@ pc-companion/build/
 pc-companion/dist/
 *.spec
 .DS_Store
+pc-companion/version.txt

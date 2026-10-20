@@ -26,6 +26,13 @@ jobs:
       - name: Install companion and packaging dependencies
         run: python -m pip install -r pc-companion/requirements.txt pyinstaller
 
+      - name: Stamp the build version
+        shell: bash
+        run: git log -1 --format=%ct > pc-companion/version.txt
+
+      - name: Check the update helper
+        run: python pc-companion/test_windows_update.py
+
       - name: Build the teacher-facing application
         working-directory: pc-companion
         run: >-
@@ -33,6 +40,7 @@ jobs:
           --name ClassroomBridge
           --collect-all aiortc --collect-all av --collect-all aioice
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
+          --add-data version.txt:.
           companion_ui.py
 
       - name: Set up MSYS2 for the AirPlay receiver
@@ -119,3 +127,10 @@ jobs:
           path: ClassroomBridge-Windows-x64.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish to the public downloads page
+        if: github.ref_name == 'main' || github.ref_name == 'claude/laughing-ramanujan-d8p3l8'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
+        run: bash pc-companion/publish_release.sh ClassroomBridge-Windows-x64.zip

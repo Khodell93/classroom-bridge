@@ -1,5 +1,6 @@
 import asyncio
 import ctypes
+import os
 import queue
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from agent import get_or_create_pairing_code, run
 from airplay import AirPlayReceiver, get_or_create_pin, receiver_name
 from desktop_overlay import DesktopInkOverlay
 from presenter import CameraPresenter
+import updater
 
 
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
@@ -37,6 +39,8 @@ class CompanionWindow:
         self.airplay_messages = queue.Queue()
         self.airplay = AirPlayReceiver(self.airplay_messages.put)
         self.airplay_status = tk.StringVar(value="")
+        self.update_messages = queue.Queue()
+        self.available_update = None
         self.code = tk.StringVar(value="— — — — — — — — — — — —")
         self.status = tk.StringVar(value="Ready to start")
 
@@ -69,6 +73,8 @@ class CompanionWindow:
         self.start_button.pack(side="left")
         self.stop_button = ttk.Button(buttons, text="Stop", command=self.stop, state="disabled")
         self.stop_button.pack(side="right")
+        self.update_button = ttk.Button(buttons, text="Update", command=self.start_update)
+        threading.Thread(target=self.check_for_update, daemon=True).start()
         self.root.after(100, self.poll_messages)
 
     def start(self):
@@ -154,6 +160,55 @@ class CompanionWindow:
         self.root.clipboard_append(self.code.get().replace(" ", ""))
         self.status.set("Pairing code copied. Enter it on the iPad.")
 
+    def check_for_update(self):
+        try:
+            update = updater.find_update()
+        except Exception:
+            return  # Offline or GitHub unavailable; the companion works without updates.
+        if update:
+            self.update_messages.put(("available", update))
+
+    def start_update(self):
+        update = self.available_update
+        if not update:
+            return
+        self.stop_event.set()
+        self.airplay.stop()
+        self.close_overlay()
+        self.presenter.hide()
+        for button in (self.start_button, self.stop_button, self.update_button):
+            button.configure(state="disabled")
+        self.status.set("Downloading the update…")
+
+        def work():
+            try:
+                folder, archive = updater.download(update, lambda share: self.update_messages.put(("progress", share)))
+                updater.install_and_restart(folder, archive)
+                self.update_messages.put(("restart", None))
+            except Exception as error:
+                self.update_messages.put(("failed", str(error)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def handle_update_message(self, kind, value):
+        if kind == "available":
+            self.available_update = value
+            self.update_button.configure(text=f"Update ({value['title']})")
+            self.update_button.pack(side="left", padx=(10, 0))
+        elif kind == "progress":
+            self.status.set(f"Downloading the update… {int(value * 100)}%")
+        elif kind == "restart":
+            self.status.set("Installing the update — Classroom Bridge will reopen in a moment.")
+            self.root.after(300, self.quit_for_update)
+        elif kind == "failed":
+            self.status.set(f"Update failed: {value}")
+            self.start_button.configure(state="normal")
+            self.update_button.configure(state="normal")
+
+    def quit_for_update(self):
+        self.close()
+        os._exit(0)
+
     def poll_messages(self):
         try:
             while True:
@@ -163,6 +218,11 @@ class CompanionWindow:
         try:
             while True:
                 self.airplay_status.set(self.airplay_messages.get_nowait())
+        except queue.Empty:
+            pass
+        try:
+            while True:
+                self.handle_update_message(*self.update_messages.get_nowait())
         except queue.Empty:
             pass
         if self.worker and not self.worker.is_alive():

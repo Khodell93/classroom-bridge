@@ -34,6 +34,9 @@ jobs:
       - name: Install companion and packaging dependencies
         run: python -m pip install -r pc-companion/requirements.txt pyinstaller
 
+      - name: Stamp the build version
+        run: git log -1 --format=%ct > pc-companion/version.txt
+
       - name: Build the Mac application
         working-directory: pc-companion
         run: >-
@@ -42,6 +45,7 @@ jobs:
           --collect-all aiortc --collect-all av --collect-all aioice
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
           --collect-all AppKit --collect-all Foundation --collect-all Quartz
+          --add-data version.txt:.
           companion_ui.py
 
       - name: Prepare download package
@@ -78,3 +82,9 @@ jobs:
             ClassroomBridge-macOS-Start-Here.txt
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish to the public downloads page
+        if: github.ref_name == 'main' || github.ref_name == 'claude/laughing-ramanujan-d8p3l8'
+        env:
+          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
+        run: bash pc-companion/publish_release.sh ClassroomBridge-macOS-${{ matrix.architecture }}.zip ClassroomBridge-macOS-Start-Here.txt

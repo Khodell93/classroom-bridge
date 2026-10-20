@@ -39,6 +39,12 @@ The Windows executable is produced by the GitHub Actions workflow at `.github/wo
 
 The companion captures and controls the signed-in Windows desktop after the iPad pairs. Use it only on a school-approved PC and close it when finished.
 
+## Companion downloads and updates
+
+Each companion build on `main` or the development branch is published as a release of the public [classroom-bridge-downloads](https://github.com/Khodell93/classroom-bridge-downloads/releases/latest) repository (only the built apps; this source repository stays private). Installed companions check those releases when they open and show an **Update** button when a newer build exists; it downloads the update, checks it against the published SHA-256, replaces the app and reopens it. On a Mac the app must be in a folder the account can write to (normally Applications), not run directly from Downloads.
+
+Publishing needs a `DOWNLOADS_TOKEN` repository secret: a fine-grained personal access token limited to `classroom-bridge-downloads` with **Contents: Read and write**. Without it, builds still succeed and skip publishing.
+
 ## Automatic deploys
 
 The **Deploy web app** workflow publishes the iPad web app and Worker whenever they change on `main` or the development branch. It needs two repository secrets, added once:
