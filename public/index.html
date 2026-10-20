@@ -49,7 +49,11 @@
             <div id="camera-placeholder" class="stage-placeholder">
               <span class="placeholder-icon">◉</span>
               <strong>Camera or photo</strong>
-              <span>Start the iPad camera or choose a photo or score from Tools.</span>
+              <span id="camera-message">Show a book, worksheet or score under the iPad camera, or choose a photo.</span>
+              <div class="placeholder-actions">
+                <button id="placeholder-camera" class="primary">Start camera</button>
+                <label class="secondary file-button">Choose photo<input class="photo-picker" type="file" accept="image/*"></label>
+              </div>
             </div>
           </div>
         </div>
@@ -100,7 +104,7 @@
               <button id="camera-freeze" class="tool-tile" hidden><span>❚❚</span><strong>Freeze</strong></button>
               <button id="camera-live" class="tool-tile" hidden><span>▶</span><strong>Back to live</strong></button>
               <button id="camera-stop" class="tool-tile" hidden><span>◌</span><strong>Stop camera</strong></button>
-              <label class="tool-tile file-tile"><span>▧</span><strong>Choose photo</strong><input id="photo-input" type="file" accept="image/*" capture="environment"></label>
+              <label class="tool-tile file-tile"><span>▧</span><strong>Choose photo</strong><input id="photo-input" class="photo-picker" type="file" accept="image/*"></label>
             </div>
             <p class="drawer-hint" id="draw-hint">Finger controls the mouse. Apple Pencil annotations appear on both screens; Clear ink removes them.</p>
           </div>

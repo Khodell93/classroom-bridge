@@ -537,6 +537,19 @@ function selectMode(mode) {
   currentMode = mode;
   updateModeControls();
   sendView();
+  // Like the Camera app: opening Camera mode turns the camera on (this tap also satisfies Safari's permission rule).
+  if (mode === "camera" && cameraView === "off") openCamera();
+}
+
+async function openCamera() {
+  try {
+    toolsDrawer.hidden = true;
+    await startCamera(cameraFacing);
+  } catch (error) {
+    document.querySelector("#camera-message").textContent = error?.name === "NotAllowedError"
+      ? "Camera access is blocked. Allow the camera for this site in Settings → Apps → Safari → Camera, then tap Start camera."
+      : `Camera unavailable: ${error?.message || error}. Choose a photo instead.`;
+  }
 }
 
 function sendView() {
@@ -931,14 +944,8 @@ document.querySelector("#disconnect-button").addEventListener("click", () => {
 document.querySelector("#immersive-button").addEventListener("click", () => {
   document.body.classList.toggle("immersive-mode");
 });
-document.querySelector("#camera-start").addEventListener("click", async () => {
-  try {
-    toolsDrawer.hidden = true;
-    await startCamera(cameraFacing);
-  } catch (error) {
-    cameraPlaceholder.querySelector("span:last-child").textContent = `Camera unavailable: ${error.message}. Choose a photo instead.`;
-  }
-});
+document.querySelector("#camera-start").addEventListener("click", openCamera);
+document.querySelector("#placeholder-camera").addEventListener("click", openCamera);
 document.querySelector("#camera-flip").addEventListener("click", async () => {
   try {
     await startCamera(cameraFacing === "environment" ? "user" : "environment");
@@ -972,7 +979,7 @@ document.querySelector("#camera-stop").addEventListener("click", () => {
   attachCameraTrack();
   sendView();
 });
-document.querySelector("#photo-input").addEventListener("change", async event => {
+document.querySelectorAll(".photo-picker").forEach(input => input.addEventListener("change", async event => {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
@@ -982,9 +989,9 @@ document.querySelector("#photo-input").addEventListener("change", async event =>
     const blob = await preparePhoto(file);
     if (blob) showStill(blob);
   } catch {
-    cameraPlaceholder.querySelector("span:last-child").textContent = "That photo could not be opened. Try another image.";
+    document.querySelector("#camera-message").textContent = "That photo could not be opened. Try another image.";
   }
-});
+}));
 
 // In live camera view a finger works the camera (tap to focus, pinch to zoom) and Apple Pencil draws, as in PC mode.
 for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {

@@ -9,3 +9,7 @@
 .focus-ring.pulse{animation:focus-pulse .45s ease-out}
 @keyframes focus-pulse{from{transform:scale(1.5);opacity:.4}to{transform:scale(1);opacity:1}}
 .stage video.mirrored{transform:scaleX(-1)}
+.placeholder-actions{display:flex;gap:10px;margin-top:10px}
+.placeholder-actions .primary{margin-top:0}
+.file-button{position:relative;display:inline-flex;align-items:center;overflow:hidden}
+.file-button input{position:absolute;inset:0;opacity:0;cursor:pointer}
