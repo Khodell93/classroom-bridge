@@ -22,22 +22,6 @@ let peerConnection;
 let signalSocket;
 let controlChannel;
 let inkChannel;
-let cameraStream;
-let cameraSender;
-let mediaChannel;
-let cameraView = "off";
-let lastStill;
-let stillCounter = 0;
-let cameraFacing = "environment";
-// Live video runs at 1080p so the iPad's hardware encoder keeps it smooth; Freeze briefly switches to 4K for the still.
-const LIVE_CAMERA_SIZE = { width: { ideal: 1920 }, height: { ideal: 1080 } };
-const STILL_CAMERA_SIZE = { width: { ideal: 3840 }, height: { ideal: 2160 } };
-let cameraCapabilities = {};
-let cameraZoom = 1;
-let pendingCameraZoom;
-let cameraPinch;
-let cameraGestureWasPinch = false;
-const cameraTouches = new Map();
 let currentMode = "pc";
 let currentToolsPage = "draw";
 let drawEnabled = true;
@@ -130,7 +114,7 @@ function setCanvasSizes() {
 }
 
 function beginInk(canvas, event) {
-  if (!drawEnabled || (currentMode === "pc" && event.pointerType !== "pen")) return false;
+  if (!drawEnabled || event.pointerType !== "pen") return false;
   const bounds = canvas.getBoundingClientRect();
   resizeCanvas(canvas);
   const context = canvas.getContext("2d");
@@ -194,44 +178,16 @@ function endInk() {
 }
 
 function sendsRemoteInk(canvas) {
-  return canvas === pcInk || (canvas === cameraInk && cameraView !== "off");
-}
-
-// Where the camera image or photo sits inside the iPad stage (object-fit: contain), in client pixels.
-function cameraContentRect() {
-  const bounds = cameraStage.getBoundingClientRect();
-  const width = cameraView === "live" ? cameraVideo.videoWidth : photoImage.naturalWidth;
-  const height = cameraView === "live" ? cameraVideo.videoHeight : photoImage.naturalHeight;
-  const aspect = width && height ? width / height : 16 / 9;
-  const contentWidth = Math.min(bounds.width, bounds.height * aspect);
-  const contentHeight = contentWidth / aspect;
-  return { left: bounds.left + (bounds.width - contentWidth) / 2, top: bounds.top + (bounds.height - contentHeight) / 2, width: contentWidth, height: contentHeight, aspect };
-}
-
-// The PC presenter letterboxes the same image to the host screen; this is the image's area there (0–1).
-function cameraHostRect(aspect) {
-  const hostAspect = hostScreenWidth / hostScreenHeight;
-  const width = aspect > hostAspect ? 1 : aspect / hostAspect;
-  const height = aspect > hostAspect ? hostAspect / aspect : 1;
-  return { left: (1 - width) / 2, top: (1 - height) / 2, width, height };
+  return canvas === pcInk;
 }
 
 function remoteInkPoint(canvas, event) {
-  if (canvas === pcInk) return desktopPoint(event);
-  const content = cameraContentRect();
-  const host = cameraHostRect(content.aspect);
-  const u = Math.max(0, Math.min(1, (event.clientX - content.left) / content.width));
-  const v = Math.max(0, Math.min(1, (event.clientY - content.top) / content.height));
-  return { x: host.left + u * host.width, y: host.top + v * host.height };
+  return desktopPoint(event);
 }
 
-function remoteInkScale(canvas) {
-  if (canvas === pcInk) {
-    const stageBounds = pcStage.getBoundingClientRect();
-    return hostScreenWidth / Math.min(stageBounds.width, stageBounds.height * 16 / 9);
-  }
-  const content = cameraContentRect();
-  return cameraHostRect(content.aspect).width * hostScreenWidth / content.width;
+function remoteInkScale() {
+  const stageBounds = pcStage.getBoundingClientRect();
+  return hostScreenWidth / Math.min(stageBounds.width, stageBounds.height * 16 / 9);
 }
 
 function updateModeControls() {
@@ -241,18 +197,11 @@ function updateModeControls() {
   document.querySelector("#stage-label").textContent = currentMode === "pc" ? "PC screen" : "Camera / photo";
   document.querySelectorAll(".pc-only").forEach(element => element.hidden = currentMode !== "pc");
   document.querySelector(".camera-row").hidden = currentMode !== "camera";
-  document.querySelector("#camera-start").hidden = Boolean(cameraStream);
-  const quickFreeze = document.querySelector("#quick-freeze");
-  quickFreeze.hidden = currentMode !== "camera" || !cameraStream;
-  quickFreeze.textContent = cameraView === "live" ? "❚❚ Freeze" : "▶ Live";
-  updateCameraControls();
-  document.querySelector("#camera-freeze").hidden = cameraView !== "live";
-  document.querySelector("#camera-live").hidden = cameraView !== "still" || !cameraStream;
-  document.querySelector("#camera-stop").hidden = cameraView === "off";
   document.querySelector("#draw-hint").textContent = currentMode === "pc"
     ? "Finger controls the mouse; pinch to zoom the view. Apple Pencil annotations appear on both screens."
-    : "Draw on the camera or photo with Apple Pencil or touch; it appears on the classroom display. Freeze sends a full-quality still.";
+    : "Use the toolbar on the left of the camera to draw. In live view a finger taps to focus and pinches to zoom; Apple Pencil draws.";
   setCanvasSizes();
+  updateVisualiserControls();
 }
 
 function selectToolsPage(page) {
@@ -342,7 +291,7 @@ async function connect() {
         mediaChannel = event.channel;
         mediaChannel.binaryType = "arraybuffer";
         mediaChannel.bufferedAmountLowThreshold = 256 * 1024;
-        mediaChannel.onopen = () => { if (currentMode === "camera" && cameraView === "still") sendStill(); };
+        mediaChannel.onopen = visualiserMediaChannelOpened;
         return;
       }
       controlChannel = event.channel;
@@ -350,7 +299,6 @@ async function connect() {
         window.clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
         sendControl({ type: "screen-zoom", zoom: hostZoomStep });
-        sendView();
         setStatus("PC connected", true);
         requestScreenWakeLock();
       };
@@ -539,252 +487,7 @@ function selectMode(mode) {
   if (mode !== currentMode) clearInk();
   currentMode = mode;
   updateModeControls();
-  sendView();
-  // Like the Camera app: opening Camera mode turns the camera on (this tap also satisfies Safari's permission rule).
-  if (mode === "camera" && cameraView === "off") openCamera();
-}
-
-async function openCamera() {
-  try {
-    toolsDrawer.hidden = true;
-    await startCamera(cameraFacing);
-  } catch (error) {
-    document.querySelector("#camera-message").textContent = error?.name === "NotAllowedError"
-      ? "Camera access is blocked. Allow the camera for this site in Settings → Apps → Safari → Camera, then tap Start camera."
-      : `Camera unavailable: ${error?.message || error}. Choose a photo instead.`;
-  }
-}
-
-function sendView() {
-  // A still switches the PC display by itself once it arrives; until then the PC keeps the last live frame.
-  if (currentMode === "camera" && cameraView === "still") sendStill();
-  else sendControl({ type: "view", mode: currentMode === "camera" && cameraView === "live" ? "live" : "pc" });
-}
-
-async function attachCameraTrack() {
-  if (!cameraSender) return;
-  const track = cameraView === "live" ? cameraStream?.getVideoTracks()[0] ?? null : null;
-  try {
-    await cameraSender.replaceTrack(track);
-    if (!track) return;
-    const settings = track.getSettings();
-    const parameters = cameraSender.getParameters();
-    if (!parameters.encodings?.length) return;
-    // Up to 1080p at a high bitrate; "balanced" lowers detail briefly rather than freezing frames when the network dips.
-    parameters.encodings[0].maxBitrate = 6_000_000;
-    parameters.encodings[0].maxFramerate = 30;
-    parameters.encodings[0].scaleResolutionDownBy = Math.max(1, Math.max(settings.width || 1920, settings.height || 1080) / 1920);
-    parameters.degradationPreference = "balanced";
-    await cameraSender.setParameters(parameters);
-  } catch {}
-}
-
-function waitForMediaDrain(channel) {
-  return new Promise(resolve => {
-    const done = () => { channel.removeEventListener("bufferedamountlow", done); channel.removeEventListener("close", done); resolve(); };
-    channel.addEventListener("bufferedamountlow", done);
-    channel.addEventListener("close", done);
-  });
-}
-
-async function sendStill() {
-  const channel = mediaChannel;
-  if (!lastStill || channel?.readyState !== "open") return;
-  const id = ++stillCounter;
-  const buffer = await lastStill.arrayBuffer();
-  if (id !== stillCounter || channel.readyState !== "open") return;
-  channel.send(JSON.stringify({ type: "still-start", id, size: buffer.byteLength }));
-  for (let offset = 0; offset < buffer.byteLength; offset += 16 * 1024) {
-    if (channel.bufferedAmount > 1024 * 1024) await waitForMediaDrain(channel);
-    if (id !== stillCounter || channel.readyState !== "open") return;
-    channel.send(buffer.slice(offset, offset + 16 * 1024));
-  }
-  channel.send(JSON.stringify({ type: "still-end", id }));
-}
-
-function canvasToJpeg(canvas) {
-  return new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
-}
-
-function showStill(blob) {
-  if (photoImage.src.startsWith("blob:")) URL.revokeObjectURL(photoImage.src);
-  photoImage.src = URL.createObjectURL(blob);
-  photoImage.hidden = false;
-  cameraVideo.hidden = true;
-  cameraPlaceholder.hidden = true;
-  cameraView = "still";
-  lastStill = blob;
-  updateModeControls();
-  attachCameraTrack();
-  sendView();
-}
-
-// Freeze grabs the camera's full native resolution (up to 4K), which is sharper than the live video.
-function nextCameraFrame() {
-  return new Promise(resolve => {
-    const timeout = window.setTimeout(resolve, 700);
-    if (cameraVideo.requestVideoFrameCallback) cameraVideo.requestVideoFrameCallback(() => { window.clearTimeout(timeout); resolve(); });
-  });
-}
-
-async function freezeCamera() {
-  if (!cameraVideo.videoWidth) return;
-  const track = cameraTrack();
-  let raised = false;
-  try {
-    await track?.applyConstraints({ ...STILL_CAMERA_SIZE, frameRate: { ideal: 30 } });
-    raised = true;
-    await nextCameraFrame();
-    await nextCameraFrame();
-  } catch {}
-  const canvas = document.createElement("canvas");
-  canvas.width = cameraVideo.videoWidth;
-  canvas.height = cameraVideo.videoHeight;
-  canvas.getContext("2d").drawImage(cameraVideo, 0, 0);
-  if (raised) track.applyConstraints({ ...LIVE_CAMERA_SIZE, frameRate: { ideal: 30 } }).catch(() => {});
-  const blob = await canvasToJpeg(canvas);
-  if (blob) showStill(blob);
-}
-
-function resumeLiveCamera() {
-  if (!cameraStream) return;
-  stillCounter += 1;
-  photoImage.hidden = true;
-  cameraVideo.hidden = false;
-  cameraPlaceholder.hidden = true;
-  cameraVideo.play().catch(() => {});
-  cameraView = "live";
-  updateModeControls();
-  attachCameraTrack();
-  sendView();
-}
-
-function cameraTrack() {
-  return cameraStream?.getVideoTracks()[0];
-}
-
-async function startCamera(facing) {
-  stopCamera();
-  cameraStream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: facing }, ...LIVE_CAMERA_SIZE, frameRate: { ideal: 30 } },
-    audio: false,
-  });
-  cameraFacing = facing;
-  const track = cameraTrack();
-  if (track && "contentHint" in track) track.contentHint = "detail";
-  cameraCapabilities = track?.getCapabilities?.() ?? {};
-  cameraZoom = track?.getSettings().zoom ?? cameraCapabilities.zoom?.min ?? 1;
-  cameraVideo.srcObject = cameraStream;
-  cameraVideo.classList.toggle("mirrored", facing === "user");
-  resumeLiveCamera();
-  const settings = track?.getSettings() ?? {};
-  if (settings.width) document.querySelector("#draw-hint").textContent = `Camera ${settings.width}×${settings.height}. Finger: tap to focus, pinch to zoom. Apple Pencil draws. Freeze sends a full-quality still.`;
-}
-
-// Only show controls the iPad camera reports it supports, so nothing on screen silently does nothing.
-function canFocusAtPoint() {
-  const supported = navigator.mediaDevices.getSupportedConstraints?.() ?? {};
-  return Boolean(supported.pointsOfInterest || cameraCapabilities.focusMode?.includes("single-shot"));
-}
-
-function updateCameraControls() {
-  const live = currentMode === "camera" && cameraView === "live";
-  document.querySelector("#camera-controls").hidden = !live;
-  document.querySelector("#camera-torch").hidden = !cameraCapabilities.torch;
-  const zoomButton = document.querySelector("#camera-zoom");
-  zoomButton.hidden = !cameraCapabilities.zoom;
-  zoomButton.textContent = `${(cameraZoom / (cameraCapabilities.zoom?.min || 1)).toFixed(1).replace(/\.0$/, "")}×`;
-}
-
-async function applyCameraSetting(setting) {
-  try {
-    await cameraTrack()?.applyConstraints({ advanced: [setting] });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function setCameraZoom(value) {
-  const range = cameraCapabilities.zoom;
-  if (!range) return;
-  cameraZoom = Math.max(range.min, Math.min(Math.min(range.max, range.min * 10), value));
-  updateCameraControls();
-  if (pendingCameraZoom) return;
-  pendingCameraZoom = requestAnimationFrame(async () => {
-    pendingCameraZoom = undefined;
-    await applyCameraSetting({ zoom: cameraZoom });
-  });
-}
-
-async function focusCameraAt(event) {
-  if (!canFocusAtPoint()) return;
-  const content = cameraContentRect();
-  let x = Math.max(0, Math.min(1, (event.clientX - content.left) / content.width));
-  const y = Math.max(0, Math.min(1, (event.clientY - content.top) / content.height));
-  if (cameraFacing === "user") x = 1 - x;
-  const setting = { pointsOfInterest: [{ x, y }] };
-  if (cameraCapabilities.focusMode?.includes("single-shot")) setting.focusMode = "single-shot";
-  if (cameraCapabilities.exposureMode?.includes("single-shot")) setting.exposureMode = "single-shot";
-  if (!await applyCameraSetting(setting)) return;
-  const ring = document.querySelector("#focus-ring");
-  const stageBounds = cameraStage.getBoundingClientRect();
-  ring.style.left = `${event.clientX - stageBounds.left}px`;
-  ring.style.top = `${event.clientY - stageBounds.top}px`;
-  ring.hidden = false;
-  ring.classList.remove("pulse");
-  void ring.offsetWidth;
-  ring.classList.add("pulse");
-  window.clearTimeout(ring.hideTimer);
-  ring.hideTimer = window.setTimeout(() => { ring.hidden = true; }, 1200);
-}
-
-function cameraGesture(event) {
-  const phase = event.type;
-  if (phase === "pointerdown") {
-    cameraTouches.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
-    cameraInk.setPointerCapture(event.pointerId);
-    if (cameraTouches.size === 2 && cameraCapabilities.zoom) {
-      const [first, second] = [...cameraTouches.values()];
-      cameraPinch = { distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)), zoom: cameraZoom };
-      cameraGestureWasPinch = true;
-    }
-  } else if (phase === "pointermove") {
-    const touch = cameraTouches.get(event.pointerId);
-    if (!touch) return;
-    touch.x = event.clientX;
-    touch.y = event.clientY;
-    if (cameraPinch && cameraTouches.size >= 2) {
-      const [first, second] = [...cameraTouches.values()];
-      setCameraZoom(cameraPinch.zoom * Math.hypot(second.x - first.x, second.y - first.y) / cameraPinch.distance);
-    }
-  } else {
-    const touch = cameraTouches.get(event.pointerId);
-    cameraTouches.delete(event.pointerId);
-    if (cameraTouches.size < 2) cameraPinch = undefined;
-    const tapped = touch && phase === "pointerup" && Math.hypot(event.clientX - touch.startX, event.clientY - touch.startY) < 12;
-    if (tapped && !cameraGestureWasPinch) focusCameraAt(event);
-    if (!cameraTouches.size) cameraGestureWasPinch = false;
-  }
-  event.preventDefault();
-}
-
-function stopCamera() {
-  cameraStream?.getTracks().forEach(track => track.stop());
-  cameraStream = undefined;
-  cameraVideo.srcObject = null;
-}
-
-// Photos are limited to 4K on the long edge and re-encoded so the PC gets an upright JPEG.
-async function preparePhoto(file) {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const scale = Math.min(1, 3840 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close?.();
-  return canvasToJpeg(canvas);
+  visualiserModeChanged(mode);
 }
 
 function clearInk() {
@@ -858,6 +561,10 @@ function clipboardMessage(event) {
     document.querySelector("#open-explorer strong").textContent = hostPlatform === "macos" ? "Open Finder" : "File Explorer";
     return;
   }
+  if (["need-photo", "saved", "save-error"].includes(message.type)) {
+    visualiserMessage(message);
+    return;
+  }
   if (message.type === "clipboard-error") {
     document.querySelector("#clipboard-message").textContent = "Windows could not access the clipboard. Try copying text on the PC and send again.";
     return;
@@ -886,7 +593,10 @@ document.querySelector("#pen-button").addEventListener("click", event => {
   drawEnabled = !drawEnabled;
   event.currentTarget.classList.toggle("selected", drawEnabled);
 });
-document.querySelector("#clear-button").addEventListener("click", clearInk);
+document.querySelector("#clear-button").addEventListener("click", () => {
+  if (currentMode === "camera") clearPage();
+  else clearInk();
+});
 document.querySelector("#previous-slide").addEventListener("click", () => sendControl({ type: "key", key: "left" }));
 document.querySelector("#next-slide").addEventListener("click", () => sendControl({ type: "key", key: "right" }));
 document.querySelector("#open-explorer").addEventListener("click", () => handleShortcut("win+e"));
@@ -965,69 +675,9 @@ document.querySelector("#disconnect-button").addEventListener("click", () => {
 document.querySelector("#immersive-button").addEventListener("click", () => {
   document.body.classList.toggle("immersive-mode");
 });
-document.querySelector("#camera-start").addEventListener("click", openCamera);
-document.querySelector("#placeholder-camera").addEventListener("click", openCamera);
-document.querySelector("#camera-flip").addEventListener("click", async () => {
-  try {
-    await startCamera(cameraFacing === "environment" ? "user" : "environment");
-  } catch {
-    await startCamera(cameraFacing).catch(() => {});
-  }
-});
-document.querySelector("#camera-torch").addEventListener("click", async event => {
-  const button = event.currentTarget;
-  const on = !button.classList.contains("selected");
-  if (await applyCameraSetting({ torch: on })) button.classList.toggle("selected", on);
-});
-document.querySelector("#camera-zoom").addEventListener("click", () => {
-  const min = cameraCapabilities.zoom?.min || 1;
-  const steps = [1, 2, 4].map(step => step * min).filter(step => step <= (cameraCapabilities.zoom?.max ?? min));
-  setCameraZoom(steps.find(step => step > cameraZoom + 0.05) ?? min);
-});
-document.querySelector("#quick-freeze").addEventListener("click", () => { if (cameraView === "live") freezeCamera(); else resumeLiveCamera(); });
-document.querySelector("#camera-freeze").addEventListener("click", () => { freezeCamera(); toolsDrawer.hidden = true; });
-document.querySelector("#camera-live").addEventListener("click", () => { resumeLiveCamera(); toolsDrawer.hidden = true; });
-document.querySelector("#camera-stop").addEventListener("click", () => {
-  stopCamera();
-  stillCounter += 1;
-  lastStill = undefined;
-  cameraVideo.hidden = true;
-  photoImage.hidden = true;
-  cameraPlaceholder.hidden = false;
-  cameraView = "off";
-  clearInk();
-  updateModeControls();
-  attachCameraTrack();
-  sendView();
-});
-document.querySelectorAll(".photo-picker").forEach(input => input.addEventListener("change", async event => {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) return;
-  stopCamera();
-  toolsDrawer.hidden = true;
-  try {
-    const blob = await preparePhoto(file);
-    if (blob) showStill(blob);
-  } catch {
-    document.querySelector("#camera-message").textContent = "That photo could not be opened. Try another image.";
-  }
-}));
-
-// In live camera view a finger works the camera (tap to focus, pinch to zoom) and Apple Pencil draws, as in PC mode.
-for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
-  cameraInk.addEventListener(type, event => {
-    if (event.pointerType === "touch" && cameraView === "live" && (type === "pointerdown" || cameraTouches.has(event.pointerId))) {
-      cameraGesture(event);
-      event.stopImmediatePropagation();
-    }
-  });
-}
-for (const canvas of [pcInk, cameraInk]) {
+for (const canvas of [pcInk]) {
   canvas.addEventListener("pointerdown", event => {
-    if (currentMode === "camera" || event.pointerType === "pen") {
-      if (beginInk(canvas, event)) event.preventDefault();
-    }
+    if (event.pointerType === "pen" && beginInk(canvas, event)) event.preventDefault();
   });
   canvas.addEventListener("pointermove", event => {
     if (drawing) {
@@ -1181,4 +831,5 @@ if (savedCode) {
 }
 if (readStoredValue(FIRST_OPEN_KEY)) setupModal.hidden = true;
 else writeStoredValue(FIRST_OPEN_KEY, "true");
+initVisualiser();
 updateModeControls();

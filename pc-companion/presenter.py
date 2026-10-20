@@ -5,10 +5,10 @@ from PIL import ImageTk
 
 
 class CameraPresenter:
-    """Full-screen window on the classroom display for the iPad camera (live) or a photo (still).
+    """Full-screen window on the classroom display for the visualiser (live camera or a photo, with annotations).
 
-    Events arrive from the networking thread; only the newest image is kept and it is drawn on the Tk thread.
-    Apple Pencil ink is drawn by the separate desktop overlay, which stays above this window.
+    Commands arrive from the networking thread; only the newest one is kept and it is drawn on the Tk thread:
+    {"type": "show", "image": PIL.Image} | {"type": "blank"} | {"type": "hide"}.
     """
 
     def __init__(self, root):
@@ -16,26 +16,14 @@ class CameraPresenter:
         self.window = None
         self.label = None
         self.photo = None
-        self.mode = "pc"
-        self.live_image = None
-        self.still_image = None
         self.pending = None
         self.lock = threading.Lock()
         self.scheduled = False
 
-    def handle(self, event):
+    def handle(self, command):
         with self.lock:
-            kind = event.get("type")
-            if kind == "view":
-                self.pending = ("view", event["mode"])
-            elif kind == "camera-frame":
-                self.live_image = event["image"]
-                self.pending = self.pending or ("refresh", None)
-            elif kind == "still":
-                # A finished photo always takes over the display; the iPad pauses live video before sending one.
-                self.still_image = event["image"]
-                self.pending = ("view", "still")
-            if self.scheduled or self.pending is None:
+            self.pending = command
+            if self.scheduled:
                 return
             self.scheduled = True
         try:
@@ -46,22 +34,20 @@ class CameraPresenter:
 
     def render(self):
         with self.lock:
-            action, value = self.pending or (None, None)
-            self.pending = None
+            command, self.pending = self.pending, None
             self.scheduled = False
-            if action == "view":
-                self.mode = value
-                if value != "live":
-                    self.live_image = None
-            image = self.live_image if self.mode == "live" else self.still_image if self.mode == "still" else None
-            if self.mode == "live":
-                self.live_image = None
-        if self.mode == "pc":
+        if command is None:
+            return
+        kind = command.get("type")
+        if kind == "hide":
             self.hide()
             return
         self.show()
-        if image is None:
+        if kind == "blank":
+            self.photo = None
+            self.label.configure(image="")
             return
+        image = command["image"]
         if self.photo is not None and (self.photo.width(), self.photo.height()) == image.size:
             self.photo.paste(image)
         else:
@@ -72,7 +58,7 @@ class CameraPresenter:
         if self.window is not None:
             return
         self.window = tk.Toplevel(self.root)
-        self.window.title("Classroom Bridge — Camera")
+        self.window.title("Classroom Bridge — Visualiser")
         self.window.configure(bg="black", cursor="none")
         self.window.attributes("-fullscreen", True)
         self.window.protocol("WM_DELETE_WINDOW", self.hide)

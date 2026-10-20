@@ -41,18 +41,58 @@
             <img id="photo-image" alt="Selected photo or score" hidden>
             <canvas id="camera-ink" class="ink-layer"></canvas>
             <div id="focus-ring" class="focus-ring" hidden></div>
-            <div id="camera-controls" class="camera-controls" hidden>
-              <button id="camera-zoom" class="glass-button camera-control" aria-label="Change camera zoom" hidden>1×</button>
-              <button id="camera-torch" class="glass-button camera-control" aria-label="Toggle camera light" hidden>ϟ</button>
-              <button id="camera-flip" class="glass-button camera-control" aria-label="Switch between front and back camera">⟲</button>
+            <div id="vis-flash" class="vis-flash" hidden></div>
+            <div id="vis-banner" class="vis-banner" hidden></div>
+
+            <aside id="vis-tools" class="vis-panel vis-tools" aria-label="Annotation tools" hidden>
+              <button class="vis-button vis-tool selected" data-tool="pen" aria-label="Pen" title="Pen">✎</button>
+              <button class="vis-button vis-tool" data-tool="highlighter" aria-label="Highlighter" title="Highlighter">▌</button>
+              <button class="vis-button vis-tool" data-tool="eraser" aria-label="Eraser — removes whole strokes" title="Eraser">⌫</button>
+              <span class="vis-divider"></span>
+              <div id="vis-colours" class="vis-colours"></div>
+              <span class="vis-divider"></span>
+              <button class="vis-button vis-size" data-size="0" aria-label="Thin"><i style="--dot:5px"></i></button>
+              <button class="vis-button vis-size selected" data-size="1" aria-label="Medium"><i style="--dot:9px"></i></button>
+              <button class="vis-button vis-size" data-size="2" aria-label="Thick"><i style="--dot:15px"></i></button>
+              <span class="vis-divider"></span>
+              <button id="vis-undo" class="vis-button" aria-label="Undo" title="Undo">↶</button>
+              <button id="vis-redo" class="vis-button" aria-label="Redo" title="Redo">↷</button>
+              <button id="vis-clear" class="vis-button" aria-label="Clear annotations on this page" title="Clear page">✕</button>
+            </aside>
+
+            <aside id="vis-side" class="vis-side" aria-label="Camera" hidden>
+              <div id="camera-controls" class="vis-panel vis-side-group" hidden>
+                <button id="camera-zoom" class="vis-button" aria-label="Change camera zoom" hidden>1×</button>
+                <button id="camera-torch" class="vis-button" aria-label="Toggle camera light" hidden>ϟ</button>
+                <button id="camera-flip" class="vis-button" aria-label="Switch between front and back camera">⟲</button>
+              </div>
+              <button id="vis-shutter" class="vis-shutter" aria-label="Capture photo"></button>
+              <div class="vis-panel vis-side-group">
+                <button id="vis-rotate" class="vis-button" aria-label="Rotate 90°" title="Rotate">⤾</button>
+                <button id="vis-hold" class="vis-button vis-labelled" aria-label="Hold: freeze the projector while you move things" title="Hold">❚❚<small>Hold</small></button>
+                <button id="vis-blank" class="vis-button vis-labelled" aria-label="Blank the projector" title="Blank">■<small>Blank</small></button>
+              </div>
+            </aside>
+
+            <div id="vis-photo-actions" class="vis-panel vis-photo-actions" hidden>
+              <button id="vis-save" class="vis-action">⇪ Save to iPad</button>
+              <button id="vis-save-pc" class="vis-action">▣ Save to PC</button>
+              <button id="vis-delete" class="vis-action danger">Delete</button>
             </div>
+
+            <nav id="vis-filmstrip" class="vis-filmstrip" aria-label="Photos from this lesson" hidden>
+              <div class="vis-film-list"></div>
+              <label class="vis-film-tile vis-film-add" aria-label="Add a photo from the iPad">＋<input class="photo-picker" type="file" accept="image/*" multiple></label>
+              <button id="vis-clear-all" class="vis-film-clear" aria-label="Delete all photos">Clear all</button>
+            </nav>
+            <div id="vis-toast" class="vis-toast" role="status" hidden></div>
             <div id="camera-placeholder" class="stage-placeholder">
               <span class="placeholder-icon">◉</span>
               <strong>Camera or photo</strong>
               <span id="camera-message">Show a book, worksheet or score under the iPad camera, or choose a photo.</span>
               <div class="placeholder-actions">
                 <button id="placeholder-camera" class="primary">Start camera</button>
-                <label class="secondary file-button">Choose photo<input class="photo-picker" type="file" accept="image/*"></label>
+                <label class="secondary file-button">Choose photo<input class="photo-picker" type="file" accept="image/*" multiple></label>
               </div>
             </div>
           </div>
@@ -60,7 +100,6 @@
 
         <div class="stage-topline">
           <span id="stage-label">PC screen</span>
-          <button id="quick-freeze" class="glass-button" aria-label="Freeze or resume the camera" hidden>❚❚ Freeze</button>
           <button id="zoom-reset" class="glass-button" aria-label="Reset PC screen zoom" title="Reset zoom" hidden>1×</button>
           <button id="immersive-button" class="glass-button" aria-label="Toggle immersive view">⛶</button>
         </div>
@@ -101,10 +140,8 @@
             </div>
             <div class="tool-row camera-row" hidden>
               <button id="camera-start" class="tool-tile"><span>◉</span><strong>Start camera</strong></button>
-              <button id="camera-freeze" class="tool-tile" hidden><span>❚❚</span><strong>Freeze</strong></button>
-              <button id="camera-live" class="tool-tile" hidden><span>▶</span><strong>Back to live</strong></button>
               <button id="camera-stop" class="tool-tile" hidden><span>◌</span><strong>Stop camera</strong></button>
-              <label class="tool-tile file-tile"><span>▧</span><strong>Choose photo</strong><input id="photo-input" class="photo-picker" type="file" accept="image/*"></label>
+              <label class="tool-tile file-tile"><span>▧</span><strong>Choose photo</strong><input id="photo-input" class="photo-picker" type="file" accept="image/*" multiple></label>
             </div>
             <p class="drawer-hint" id="draw-hint">Finger controls the mouse. Apple Pencil annotations appear on both screens; Clear ink removes them.</p>
           </div>
@@ -177,6 +214,7 @@
       </div>
     </main>
     <input id="remote-typing-input" class="remote-typing-input" aria-label="Type on the connected computer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
+    <script src="/visualiser.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>
