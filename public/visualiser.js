@@ -543,21 +543,8 @@ function nextCameraFrame() {
 
 // Capture grabs the camera at up to 4K (sharper than the live video), applies the live rotation to the pixels and
 // keeps any live annotations on the new photo.
-async function capturePhoto() {
-  if (cameraView !== "live" || !cameraVideo.videoWidth) return;
-  const flash = document.querySelector("#vis-flash");
-  flash.hidden = false;
-  flash.classList.remove("flash");
-  void flash.offsetWidth;
-  flash.classList.add("flash");
-  const track = cameraTrack();
-  let raised = false;
-  try {
-    await track?.applyConstraints({ ...STILL_CAMERA_SIZE, frameRate: { ideal: 30 } });
-    raised = true;
-    await nextCameraFrame();
-    await nextCameraFrame();
-  } catch {}
+// Draws the current video frame, rotated like the live view, onto a new canvas.
+function grabVideoFrame() {
   const rotation = visualiser.liveRotation;
   const sourceWidth = cameraVideo.videoWidth;
   const sourceHeight = cameraVideo.videoHeight;
@@ -568,13 +555,64 @@ async function capturePhoto() {
   context.translate(canvas.width / 2, canvas.height / 2);
   context.rotate(rotation * Math.PI / 180);
   context.drawImage(cameraVideo, -sourceWidth / 2, -sourceHeight / 2);
-  if (raised) track.applyConstraints({ ...LIVE_CAMERA_SIZE, frameRate: { ideal: 30 } }).catch(() => {});
-  const blob = await canvasToJpeg(canvas);
-  if (!blob) return;
-  const strokes = visualiser.liveStrokes;
-  visualiser.liveStrokes = [];
-  visualiser.history.delete("live");
-  await addPhoto(blob, canvas.width, canvas.height, strokes);
+  return canvas;
+}
+
+// Average brightness (0–255) of the current video frame, sampled small so it is cheap.
+function frameBrightness() {
+  const sample = document.createElement("canvas");
+  sample.width = 48;
+  sample.height = 27;
+  const context = sample.getContext("2d", { willReadFrequently: true });
+  context.drawImage(cameraVideo, 0, 0, sample.width, sample.height);
+  const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+  let total = 0;
+  for (let index = 0; index < pixels.length; index += 4) total += pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114;
+  return total / (pixels.length / 4);
+}
+
+// Capture takes the correctly exposed live frame at once, then tries the camera's 4K mode for a sharper photo.
+// iPadOS re-runs auto-exposure when the resolution changes, so the 4K frame is only used once it is as bright as
+// the live frame was; otherwise the live frame is kept. Live annotations move onto the new photo.
+async function capturePhoto() {
+  if (cameraView !== "live" || !cameraVideo.videoWidth || visualiser.capturing) return;
+  visualiser.capturing = true;
+  const flash = document.querySelector("#vis-flash");
+  flash.hidden = false;
+  flash.classList.remove("flash");
+  void flash.offsetWidth;
+  flash.classList.add("flash");
+  const track = cameraTrack();
+  const liveWidth = cameraVideo.videoWidth;
+  let canvas = grabVideoFrame();
+  const reference = frameBrightness();
+  try {
+    await track?.applyConstraints({ ...STILL_CAMERA_SIZE, frameRate: { ideal: 30 } });
+    const deadline = performance.now() + 2500;
+    let previous = -1;
+    while (performance.now() < deadline) {
+      await nextCameraFrame();
+      if (cameraVideo.videoWidth <= liveWidth) continue;
+      const brightness = frameBrightness();
+      const settled = previous >= 0 && Math.abs(brightness - previous) <= Math.max(2, previous * 0.03);
+      if (brightness >= reference * 0.92 && settled) {
+        canvas = grabVideoFrame();
+        break;
+      }
+      previous = brightness;
+    }
+  } catch {}
+  track?.applyConstraints({ ...LIVE_CAMERA_SIZE, frameRate: { ideal: 30 } }).catch(() => {});
+  try {
+    const blob = await canvasToJpeg(canvas);
+    if (!blob) return;
+    const strokes = visualiser.liveStrokes;
+    visualiser.liveStrokes = [];
+    visualiser.history.delete("live");
+    await addPhoto(blob, canvas.width, canvas.height, strokes);
+  } finally {
+    visualiser.capturing = false;
+  }
 }
 
 async function addPhoto(blob, width, height, strokes = []) {
