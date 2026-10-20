@@ -1,7 +1,6 @@
 import asyncio
 import ctypes
 import queue
-import secrets
 import subprocess
 import sys
 import threading
@@ -10,7 +9,7 @@ from tkinter import ttk
 
 import pyautogui
 
-from agent import ROOM_ALPHABET, run
+from agent import get_or_create_pairing_code, run
 from desktop_overlay import DesktopInkOverlay
 
 
@@ -37,7 +36,7 @@ class CompanionWindow:
         ttk.Label(frame, text="Classroom Bridge", font=("Segoe UI", 20, "bold")).pack(anchor="w")
         ttk.Label(frame, text="Keep this window open while using the iPad controller.", wraplength=440).pack(anchor="w", pady=(6, 18))
         if sys.platform == "darwin":
-            ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart this app.", wraplength=460).pack(anchor="w", pady=(0, 10))
+            ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart. For iPad pinch-to-zoom on this Mac's display, enable Accessibility → Zoom → Use keyboard shortcuts to zoom.", wraplength=460).pack(anchor="w", pady=(0, 10))
             permissions = ttk.Frame(frame)
             permissions.pack(anchor="w", pady=(0, 12))
             ttk.Button(permissions, text="Screen Recording settings", command=lambda: self.open_privacy("ScreenCapture")).pack(side="left", padx=(0, 8))
@@ -76,7 +75,7 @@ class CompanionWindow:
         except Exception as error:
             self.status.set(f"Could not prepare the desktop annotation overlay: {error}")
             return
-        pairing_code = "".join(secrets.choice(ROOM_ALPHABET) for _ in range(12))
+        pairing_code = get_or_create_pairing_code()
         self.code.set(" ".join(pairing_code))
         self.status.set("Starting companion…")
         self.start_button.configure(state="disabled")

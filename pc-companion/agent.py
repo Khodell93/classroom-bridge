@@ -1,6 +1,8 @@
 import argparse
 import asyncio
 import json
+import os
+import pathlib
 import secrets
 import ssl
 import subprocess
@@ -21,6 +23,7 @@ from PIL import Image
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_screen_zoom_level = 1
 ALLOWED_KEYS = {"left", "right", "up", "down", "space", "enter", "esc", "tab", "home", "end", "pageup", "pagedown", "backspace", "delete"}
 WINDOWS_HOTKEYS = {
     ("ctrl", "a"), ("ctrl", "c"), ("ctrl", "v"), ("ctrl", "x"), ("ctrl", "z"),
@@ -36,6 +39,58 @@ MAC_HOTKEYS = {
     ("command", "shift", "left"), ("command", "shift", "right"), ("shift", "tab"),
     ("alt", "tab"), ("command", "tab"), ("command", "left"),
 }
+
+
+def get_or_create_pairing_code():
+    if sys.platform == "darwin":
+        settings_dir = pathlib.Path.home() / "Library" / "Application Support" / "ClassroomBridge"
+    else:
+        settings_dir = pathlib.Path(os.environ.get("LOCALAPPDATA", pathlib.Path.home() / "AppData" / "Local")) / "ClassroomBridge"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    code_path = settings_dir / "pairing-code.txt"
+    try:
+        code = code_path.read_text(encoding="ascii").strip().upper()
+        if len(code) == 12 and all(character in ROOM_ALPHABET for character in code):
+            return code
+    except OSError:
+        pass
+    code = "".join(secrets.choice(ROOM_ALPHABET) for _ in range(12))
+    code_path.write_text(code, encoding="ascii")
+    if sys.platform != "win32":
+        code_path.chmod(0o600)
+    return code
+
+
+def set_screen_zoom(target):
+    global _screen_zoom_level
+    target = max(1, min(4, int(round(float(target)))))
+    if target == _screen_zoom_level:
+        return
+    if sys.platform == "darwin":
+        if _screen_zoom_level == 1 and target > 1:
+            pyautogui.hotkey("option", "command", "8")
+            _screen_zoom_level = 2
+        while _screen_zoom_level < target:
+            pyautogui.hotkey("option", "command", "shift", "=")
+            _screen_zoom_level += 1
+        while _screen_zoom_level > target:
+            if target == 1:
+                pyautogui.hotkey("option", "command", "8")
+                _screen_zoom_level = 1
+            else:
+                pyautogui.hotkey("option", "command", "-")
+                _screen_zoom_level -= 1
+    else:
+        while _screen_zoom_level < target:
+            pyautogui.hotkey("win", "add")
+            _screen_zoom_level += 1
+        while _screen_zoom_level > target:
+            if target == 1:
+                pyautogui.hotkey("win", "esc")
+                _screen_zoom_level = 1
+            else:
+                pyautogui.hotkey("win", "subtract")
+                _screen_zoom_level -= 1
 
 
 class DesktopVideo(VideoStreamTrack):
@@ -60,7 +115,9 @@ class DesktopVideo(VideoStreamTrack):
 
 def perform_control(command, screen_width, screen_height):
     kind = command.get("type")
-    if kind == "move":
+    if kind == "screen-zoom":
+        set_screen_zoom(command.get("zoom", 1))
+    elif kind == "move":
         x = max(0.0, min(1.0, float(command.get("x", 0))))
         y = max(0.0, min(1.0, float(command.get("y", 0))))
         pyautogui.moveTo(int(x * (screen_width - 1)), int(y * (screen_height - 1)))
@@ -194,7 +251,7 @@ def main():
     parser = argparse.ArgumentParser(description="Classroom Bridge Windows companion")
     parser.add_argument("--signal", required=True, help="Cloudflare Worker base URL, e.g. wss://classroom-bridge.example.workers.dev")
     args = parser.parse_args()
-    room = "".join(secrets.choice(ROOM_ALPHABET) for _ in range(12))
+    room = get_or_create_pairing_code()
     try:
         print("Classroom Bridge is ready.")
         print(f"Pairing code: {room}")

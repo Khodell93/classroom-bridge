@@ -42,6 +42,7 @@ let mousePointerMoved = false;
 let remoteInputValue = "";
 let lastTap = null;
 let pcZoom = 1;
+let hostZoomStep = 1;
 let pcPanX = 0;
 let pcPanY = 0;
 let pinchGesture;
@@ -260,6 +261,7 @@ async function connect() {
       controlChannel.onopen = () => {
         window.clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
+        sendControl({ type: "screen-zoom", zoom: hostZoomStep });
         setStatus("PC connected", true);
         requestScreenWakeLock();
       };
@@ -388,6 +390,8 @@ function applyPcZoom() {
 }
 
 function resetPcZoom() {
+  if (hostZoomStep !== 1) sendControl({ type: "screen-zoom", zoom: 1 });
+  hostZoomStep = 1;
   pcZoom = 1;
   pcPanX = 0;
   pcPanY = 0;
@@ -423,10 +427,19 @@ function updatePinch() {
   pcZoom = Math.max(1, Math.min(4, pinchGesture.zoom * Math.hypot(second.x - first.x, second.y - first.y) / pinchGesture.distance));
   pcPanX = Math.max(bounds.width * (1 - pcZoom), Math.min(0, centerX - bounds.left - pinchGesture.anchorX * pcZoom));
   pcPanY = Math.max(bounds.height * (1 - pcZoom), Math.min(0, centerY - bounds.top - pinchGesture.anchorY * pcZoom));
+  let nextHostZoomStep = hostZoomStep;
+  while (nextHostZoomStep < 4 && pcZoom >= nextHostZoomStep + 0.35) nextHostZoomStep += 1;
+  while (nextHostZoomStep > 1 && pcZoom <= nextHostZoomStep - 0.65) nextHostZoomStep -= 1;
+  if (nextHostZoomStep !== hostZoomStep) {
+    hostZoomStep = nextHostZoomStep;
+    sendControl({ type: "screen-zoom", zoom: hostZoomStep });
+  }
+  sendControl({ type: "move", ...desktopPoint({ clientX: centerX, clientY: centerY }) });
   applyPcZoom();
 }
 
 function selectMode(mode) {
+  if (mode !== "pc") resetPcZoom();
   currentMode = mode;
   updateModeControls();
 }

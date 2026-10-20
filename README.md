@@ -16,8 +16,9 @@ Classroom Bridge is a prototype for operating a Windows classroom PC from an iPa
 - iPad and PC need working internet access for signaling and a network path that permits direct WebRTC media. School Wi-Fi may block peer connections; this prototype has no TURN relay fallback.
 - Screen pixels and control input travel directly between PC and iPad when WebRTC connects. Pairing offer/answer data passes through Cloudflare. The camera remains on the iPad and is not sent to the PC.
 - Apple Pencil ink is drawn over the iPad's PC view. It appears on the mirrored TV but is not written into the PowerPoint file.
+- Pinching the PC view also invokes the host computer's built-in screen magnifier, so the zoom is visible on the classroom display. Windows uses Magnifier; Mac requires **System Settings → Accessibility → Zoom → Use keyboard shortcuts to zoom**. Magnification is stepped on the host and resets with the iPad's `1×` control or when the app disconnects.
 - The app offers PC mouse control, typed text, a limited set of Windows shortcut keys, and user-initiated text clipboard transfer in either direction. It is not a production remote-support product.
-- If opted in, a pairing code is saved only in this iPad browser's local storage. It is a connection key while the companion is running, and the code changes when the companion is restarted.
+- The companion creates a random pairing code once and saves it in the signed-in user's local application data. It stays the same across companion restarts on that computer and account. If opted in, the iPad browser also saves the code locally. Keep the code private; it is the key used to join the companion while it is running.
 - Clipboard access is user-initiated. iPad browser clipboard permissions may prompt or block reads; use the on-screen typing field or manually copy text if the browser refuses. See [WebKit's Async Clipboard API notes](https://webkit.org/blog/10855/async-clipboard-api/).
 - The companion should only be installed and used on a school-approved PC. It can view and control the logged-in Windows desktop.
 
