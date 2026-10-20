@@ -36,6 +36,7 @@ let wasBackgrounded = false;
 let mousePointerStart;
 let mousePointerMoved = false;
 let remoteInputValue = "";
+let lastTap = null;
 
 function setStatus(label, connected = false) {
   statusEl.querySelector("span").textContent = label;
@@ -583,11 +584,19 @@ pcStage.addEventListener("pointerup", event => {
     const point = desktopPoint(event);
     sendControl({ type: "move", ...point });
     sendControl({ type: "mouse-up" });
-    if (mousePointerStart && !mousePointerMoved && controlChannel?.readyState === "open") {
-      if (!toolsDrawer.hidden) toolsDrawer.hidden = true;
-      remoteTypingInput.value = "";
-      remoteInputValue = "";
-      remoteTypingInput.focus({ preventScroll: true });
+    if (mousePointerStart && !mousePointerMoved) {
+      const now = Date.now();
+      const isDoubleTap = lastTap && now - lastTap.time < 450 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 32;
+      lastTap = { x: event.clientX, y: event.clientY, time: now };
+      if (isDoubleTap && controlChannel?.readyState === "open") {
+        if (!toolsDrawer.hidden) toolsDrawer.hidden = true;
+        remoteTypingInput.value = "";
+        remoteInputValue = "";
+        remoteTypingInput.focus({ preventScroll: true });
+        lastTap = null;
+      }
+    } else {
+      lastTap = null;
     }
     mousePointerStart = undefined;
   }
