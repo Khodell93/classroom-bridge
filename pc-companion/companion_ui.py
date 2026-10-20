@@ -1,6 +1,8 @@
 import asyncio
 import queue
 import secrets
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -14,8 +16,9 @@ SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
 class CompanionWindow:
     def __init__(self, root):
         self.root = root
-        self.root.title("Classroom Bridge PC Companion")
-        self.root.geometry("500x340")
+        platform_name = "Mac" if sys.platform == "darwin" else "PC"
+        self.root.title(f"Classroom Bridge {platform_name} Companion")
+        self.root.geometry("520x440" if sys.platform == "darwin" else "500x340")
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.messages = queue.Queue()
@@ -28,6 +31,12 @@ class CompanionWindow:
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Classroom Bridge", font=("Segoe UI", 20, "bold")).pack(anchor="w")
         ttk.Label(frame, text="Keep this window open while using the iPad controller.", wraplength=440).pack(anchor="w", pady=(6, 18))
+        if sys.platform == "darwin":
+            ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart this app.", wraplength=460).pack(anchor="w", pady=(0, 10))
+            permissions = ttk.Frame(frame)
+            permissions.pack(anchor="w", pady=(0, 12))
+            ttk.Button(permissions, text="Screen Recording settings", command=lambda: self.open_privacy("ScreenCapture")).pack(side="left", padx=(0, 8))
+            ttk.Button(permissions, text="Accessibility settings", command=lambda: self.open_privacy("Accessibility")).pack(side="left")
         ttk.Label(frame, text="PAIRING CODE", font=("Segoe UI", 9, "bold")).pack(anchor="center")
         ttk.Label(frame, textvariable=self.code, font=("Consolas", 24, "bold")).pack(anchor="center", pady=(6, 10))
         self.copy_button = ttk.Button(frame, text="Copy code", command=self.copy_code, state="disabled")
@@ -85,6 +94,9 @@ class CompanionWindow:
     def close(self):
         self.stop_event.set()
         self.root.destroy()
+
+    def open_privacy(self, section):
+        subprocess.Popen(["open", f"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?{section}"])
 
 
 def main():

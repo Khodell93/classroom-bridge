@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import secrets
+import subprocess
 import sys
 import threading
 
@@ -19,12 +20,19 @@ pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 ALLOWED_KEYS = {"left", "right", "up", "down", "space", "enter", "esc", "tab", "home", "end", "pageup", "pagedown"}
-ALLOWED_HOTKEYS = {
+WINDOWS_HOTKEYS = {
     ("ctrl", "a"), ("ctrl", "c"), ("ctrl", "v"), ("ctrl", "x"), ("ctrl", "z"),
     ("ctrl", "s"), ("ctrl", "o"), ("ctrl", "p"), ("ctrl", "f"), ("ctrl", "left"),
     ("ctrl", "right"), ("ctrl", "up"), ("ctrl", "down"), ("ctrl", "shift", "left"),
     ("ctrl", "shift", "right"), ("shift", "tab"), ("alt", "tab"), ("win", "e"),
     ("win", "left"), ("win", "right"), ("win", "up"), ("win", "down"),
+}
+MAC_HOTKEYS = {
+    ("command", "a"), ("command", "c"), ("command", "v"), ("command", "x"), ("command", "z"),
+    ("command", "s"), ("command", "o"), ("command", "p"), ("command", "f"),
+    ("command", "left"), ("command", "right"), ("command", "up"), ("command", "down"),
+    ("command", "shift", "left"), ("command", "shift", "right"), ("shift", "tab"),
+    ("alt", "tab"), ("command", "tab"), ("command", "left"),
 }
 
 
@@ -64,8 +72,15 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.press(command["key"])
     elif kind == "hotkey":
         keys = command.get("keys")
-        if isinstance(keys, list) and tuple(keys) in ALLOWED_HOTKEYS:
-            pyautogui.hotkey(*keys)
+        if isinstance(keys, list):
+            if sys.platform == "darwin":
+                mapped = tuple("command" if key == "win" else key for key in keys)
+                if tuple(keys) == ("win", "e"):
+                    subprocess.Popen(["open", "-a", "Finder"])
+                elif mapped in MAC_HOTKEYS:
+                    pyautogui.hotkey(*mapped)
+            elif tuple(keys) in WINDOWS_HOTKEYS:
+                pyautogui.hotkey(*keys)
     elif kind == "text":
         value = str(command.get("text", ""))[:250]
         if value.isprintable():
@@ -73,7 +88,7 @@ def perform_control(command, screen_width, screen_height):
     elif kind == "paste":
         value = str(command.get("text", ""))[:20000]
         pyperclip.copy(value)
-        pyautogui.hotkey("ctrl", "v")
+        pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
 
 
 async def run(signal_url, room, notify=print, stop_event=None):
@@ -82,6 +97,7 @@ async def run(signal_url, room, notify=print, stop_event=None):
     video_track = DesktopVideo()
     peer.addTrack(video_track)
     channel = peer.createDataChannel("controls")
+    channel.on("open", lambda: channel.send(json.dumps({"type": "host-info", "os": "macos" if sys.platform == "darwin" else "windows"})))
     width, height = pyautogui.size()
     channel.on("message", lambda raw: handle_message(raw, width, height, channel))
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"

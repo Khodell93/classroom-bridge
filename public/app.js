@@ -25,6 +25,7 @@ let currentToolsPage = "draw";
 let drawEnabled = true;
 let drawing = false;
 let previousPoint;
+let hostPlatform = "windows";
 
 function setStatus(label, connected = false) {
   statusEl.querySelector("span").textContent = label;
@@ -261,7 +262,13 @@ function handleKey(key) {
 }
 
 function handleShortcut(shortcut) {
-  sendControl({ type: "hotkey", keys: shortcut.split("+") });
+  const keys = shortcut.split("+");
+  if (hostPlatform === "macos") {
+    for (let index = 0; index < keys.length; index += 1) {
+      if (keys[index] === "ctrl") keys[index] = "win";
+    }
+  }
+  sendControl({ type: "hotkey", keys });
 }
 
 function sendTypedText() {
@@ -297,6 +304,18 @@ function clipboardMessage(event) {
   try {
     message = JSON.parse(event.data);
   } catch {
+    return;
+  }
+  if (message.type === "host-info") {
+    hostPlatform = message.os === "macos" ? "macos" : "windows";
+    const commandLabel = hostPlatform === "macos" ? "Command" : "Win";
+    document.querySelector('[data-modifier="win"]').textContent = commandLabel;
+    document.querySelector('[data-shortcut="ctrl+c"]').textContent = hostPlatform === "macos" ? "⌘+C" : "Ctrl+C";
+    document.querySelector('[data-shortcut="ctrl+v"]').textContent = hostPlatform === "macos" ? "⌘+V" : "Ctrl+V";
+    document.querySelector('[data-shortcut="ctrl+a"]').textContent = hostPlatform === "macos" ? "⌘+A" : "Ctrl+A";
+    document.querySelector('[data-shortcut="win+e"]').textContent = hostPlatform === "macos" ? "Open Finder" : "Win+E · Files";
+    document.querySelector('[data-shortcut="alt+tab"]').textContent = hostPlatform === "macos" ? "⌘+Tab" : "Alt+Tab";
+    document.querySelector("#open-explorer strong").textContent = hostPlatform === "macos" ? "Open Finder" : "File Explorer";
     return;
   }
   if (message.type === "clipboard-error") {
