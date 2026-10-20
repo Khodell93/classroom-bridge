@@ -25,6 +25,9 @@ class CompanionWindow:
         self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.messages = queue.Queue()
+        self.ink_commands = queue.SimpleQueue()
+        self.ink_schedule_lock = threading.Lock()
+        self.ink_drain_scheduled = False
         self.stop_event = threading.Event()
         self.worker = None
         self.overlay = None
@@ -98,14 +101,30 @@ class CompanionWindow:
         self.status.set("Stopping companion…")
 
     def queue_ink_command(self, command):
+        self.ink_commands.put(command)
+        with self.ink_schedule_lock:
+            if self.ink_drain_scheduled:
+                return
+            self.ink_drain_scheduled = True
         try:
-            self.root.after(0, self.apply_ink_command, command)
+            self.root.after(0, self.drain_ink_commands)
         except tk.TclError:
-            pass
+            with self.ink_schedule_lock:
+                self.ink_drain_scheduled = False
 
-    def apply_ink_command(self, command):
-        if self.overlay is not None:
-            self.overlay.apply(command)
+    def drain_ink_commands(self):
+        while True:
+            while True:
+                try:
+                    command = self.ink_commands.get_nowait()
+                except queue.Empty:
+                    break
+                if self.overlay is not None:
+                    self.overlay.apply(command)
+            with self.ink_schedule_lock:
+                if self.ink_commands.empty():
+                    self.ink_drain_scheduled = False
+                    return
 
     def close_overlay(self):
         if self.overlay is not None:

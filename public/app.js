@@ -28,6 +28,8 @@ let drawEnabled = true;
 let drawing = false;
 let drawingCanvas;
 let lastRemoteInkPoint;
+let pendingRemoteInkPoints = [];
+let remoteInkFrame;
 let previousPoint;
 let hostPlatform = "windows";
 let hostScreenWidth = 1280;
@@ -88,7 +90,7 @@ function sendControl(value) {
 
 function sendInk(value) {
   if (inkChannel?.readyState === "open") {
-    if (value.type === "ink-move" && inkChannel.bufferedAmount > 8192) return false;
+    if (value.type.startsWith("ink-move") && inkChannel.bufferedAmount > 8192) return false;
     inkChannel.send(JSON.stringify(value));
     return true;
   }
@@ -125,6 +127,7 @@ function beginInk(canvas, event) {
   drawing = true;
   drawingCanvas = canvas;
   if (canvas === pcInk) {
+    pendingRemoteInkPoints = [];
     const point = desktopPoint(event);
     lastRemoteInkPoint = point;
     const stageBounds = pcStage.getBoundingClientRect();
@@ -149,14 +152,27 @@ function moveInk(canvas, event) {
     const point = desktopPoint(event);
     const distance = lastRemoteInkPoint && Math.hypot((point.x - lastRemoteInkPoint.x) * hostScreenWidth, (point.y - lastRemoteInkPoint.y) * hostScreenHeight);
     if (!lastRemoteInkPoint || distance >= 1) {
-      sendInk({ type: "ink-move", ...point });
+      pendingRemoteInkPoints.push(point);
       lastRemoteInkPoint = point;
+      if (!remoteInkFrame) remoteInkFrame = requestAnimationFrame(flushRemoteInkPoints);
     }
   }
 }
 
+function flushRemoteInkPoints() {
+  if (remoteInkFrame) cancelAnimationFrame(remoteInkFrame);
+  remoteInkFrame = undefined;
+  if (pendingRemoteInkPoints.length) {
+    sendInk({ type: "ink-move-batch", points: pendingRemoteInkPoints });
+    pendingRemoteInkPoints = [];
+  }
+}
+
 function endInk() {
-  if (drawingCanvas === pcInk) sendInk({ type: "ink-end" });
+  if (drawingCanvas === pcInk) {
+    flushRemoteInkPoints();
+    sendInk({ type: "ink-end" });
+  }
   drawing = false;
   previousPoint = undefined;
   drawingCanvas = undefined;
@@ -446,7 +462,10 @@ function selectMode(mode) {
 
 function clearInk() {
   for (const canvas of [pcInk, cameraInk]) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
-  if (currentMode === "pc") sendInk({ type: "ink-clear" });
+  if (currentMode === "pc") {
+    flushRemoteInkPoints();
+    sendInk({ type: "ink-clear" });
+  }
 }
 
 function handleKey(key) {

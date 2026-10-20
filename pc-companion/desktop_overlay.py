@@ -91,6 +91,20 @@ class DesktopInkOverlay:
             point = (float(command.get("x", 0)), float(command.get("y", 0)))
             self._draw_segment(self.active_stroke, self.active_stroke["last"], point)
             self.active_stroke["last"] = point
+        elif kind == "ink-move-batch" and self.active_stroke is not None:
+            points = command.get("points")
+            if isinstance(points, list):
+                converted = []
+                for point in points[:256]:
+                    if not isinstance(point, dict):
+                        continue
+                    try:
+                        converted.append((float(point["x"]), float(point["y"])))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                if converted:
+                    self._draw_segments(self.active_stroke, self.active_stroke["last"], converted)
+                    self.active_stroke["last"] = converted[-1]
         elif kind == "ink-end":
             self.active_stroke = None
         elif kind == "ink-clear":
@@ -114,6 +128,9 @@ class DesktopInkOverlay:
         self.view.setNeedsDisplay_(True) if sys.platform == "darwin" else None
 
     def _draw_segment(self, stroke, start, end):
+        self._draw_segments(stroke, start, [end])
+
+    def _draw_segments(self, stroke, start, points):
         if sys.platform == "darwin":
             appkit = self.appkit
             self.image.lockFocus()
@@ -123,26 +140,31 @@ class DesktopInkOverlay:
             path.setLineCapStyle_(appkit.NSRoundLineCapStyle)
             path.setLineWidth_(stroke["width"])
             path.moveToPoint_(self._point(start))
-            path.lineToPoint_(self._point(end))
+            for point in points:
+                path.lineToPoint_(self._point(point))
             path.stroke()
             self.image.unlockFocus()
+            all_points = [start, *points]
             padding = stroke["width"] * 2
-            x = min(start[0], end[0]) * self.width - padding
-            y = (1 - max(start[1], end[1])) * self.height - padding
-            width = abs(end[0] - start[0]) * self.width + padding * 2
-            height = abs(end[1] - start[1]) * self.height + padding * 2
+            x = min(point[0] for point in all_points) * self.width - padding
+            y = (1 - max(point[1] for point in all_points)) * self.height - padding
+            width = (max(point[0] for point in all_points) - min(point[0] for point in all_points)) * self.width + padding * 2
+            height = (max(point[1] for point in all_points) - min(point[1] for point in all_points)) * self.height + padding * 2
             self.view.setNeedsDisplayInRect_(self.appkit.NSMakeRect(x, y, width, height))
         else:
-            self.canvas.create_line(
-                start[0] * self.width,
-                start[1] * self.height,
-                end[0] * self.width,
-                end[1] * self.height,
-                fill=stroke["color"],
-                width=stroke["width"],
-                capstyle="round",
-                tags="ink",
-            )
+            previous = start
+            for point in points:
+                self.canvas.create_line(
+                    previous[0] * self.width,
+                    previous[1] * self.height,
+                    point[0] * self.width,
+                    point[1] * self.height,
+                    fill=stroke["color"],
+                    width=stroke["width"],
+                    capstyle="round",
+                    tags="ink",
+                )
+                previous = point
 
     def close(self):
         if sys.platform == "darwin":
