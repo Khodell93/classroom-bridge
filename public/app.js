@@ -651,6 +651,8 @@ function resumeLiveCamera() {
   stillCounter += 1;
   photoImage.hidden = true;
   cameraVideo.hidden = false;
+  cameraPlaceholder.hidden = true;
+  cameraVideo.play().catch(() => {});
   cameraView = "live";
   updateModeControls();
   attachCameraTrack();
