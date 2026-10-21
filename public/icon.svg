@@ -1,1 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="24" fill="#88b8ff"/><path d="M19 29h58v38H19z" fill="#101827"/><path d="M28 39h40M28 49h25M28 59h32" stroke="#f4f7fb" stroke-width="5" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs>
+    <linearGradient id="bg" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="0.5" stop-color="#1d4ed8"/>
+      <stop offset="1" stop-color="#172f8f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.12" r="0.8">
+      <stop offset="0" stop-color="#93c5fd" stop-opacity="0.6"/>
+      <stop offset="0.6" stop-color="#93c5fd" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="steel" gradientUnits="userSpaceOnUse" x1="0" y1="80" x2="0" y2="720">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+    <radialGradient id="spark" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#0b1e5c" flood-opacity="0.5"/>
+    </filter>
+  </defs><g transform="translate(0 0) scale(1.0)"><rect width="1024" height="1024" rx="230" fill="url(#bg)"/><rect width="1024" height="1024" rx="230" fill="url(#glow)"/><rect x="6" y="6" width="1012" height="1012" rx="224" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="12"/><g>
+  <g filter="url(#shadow)" stroke-linecap="round" fill="none">
+    <path d="M226 596 Q512 72 798 596" stroke="url(#steel)" stroke-width="68"/>
+    <g stroke="url(#steel)" stroke-width="30">
+      <path d="M369 440 V596"/>
+      <path d="M512 380 V596"/>
+      <path d="M655 440 V596"/>
+    </g>
+    <path d="M160 596 H864" stroke="url(#steel)" stroke-width="64"/>
+    <path d="M282 626 V700 M742 626 V700" stroke="url(#steel)" stroke-width="44"/>
+  </g>
+  <g stroke="#bfe3ff" stroke-linecap="round" fill="none" stroke-width="22">
+    <path d="M206 772 q38 -26 76 0 t76 0 t76 0 t76 0 t76 0 t76 0 t76 0" stroke-opacity="0.55"/>
+    <path d="M300 846 q38 -26 76 0 t76 0 t76 0 t76 0 t76 0" stroke-opacity="0.28"/>
+  </g>
+  <circle cx="512" cy="336" r="62" fill="url(#spark)" stroke="#ffffff" stroke-width="24"/>
+</g>
+</g></svg>

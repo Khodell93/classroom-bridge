@@ -22,7 +22,7 @@ from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
 from PIL import Image
 
-from visualiser import MediaReceiver, VisualiserScene, relay_camera
+from visualiser import MediaReceiver, VisualiserScene, relay_camera, send_screenshot
 
 # aiortc caps video at 1.5 Mbps (VP8) by default, which blurs text on a classroom display.
 vpx.MAX_BITRATE = h264.MAX_BITRATE = 6_000_000
@@ -245,7 +245,11 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                     media_channel = peer.createDataChannel("media", ordered=True)
                     scene = None
                     if on_view:
-                        scene = VisualiserScene((width, height), on_view, lambda message, channel=channel: send_json(channel, message))
+                        scene = VisualiserScene(
+                            (width, height), on_view,
+                            lambda message, channel=channel: send_json(channel, message),
+                            lambda kind, data, meta, media_channel=media_channel: send_blob(media_channel, kind, data, meta),
+                        )
                         media_channel.on("message", MediaReceiver(scene).handle)
 
                         @peer.on("track")
@@ -302,10 +306,25 @@ def send_json(channel, message):
         channel.send(json.dumps(message))
 
 
+def send_blob(channel, kind, data, meta):
+    """Sends bytes to the iPad in 16 KB chunks, framed like the iPad's own blobs (blob-start, chunks, blob-end)."""
+    if channel.readyState != "open":
+        return False
+    blob_id = secrets.token_hex(6)
+    channel.send(json.dumps({"type": "blob-start", "id": blob_id, "kind": kind, "size": len(data), "meta": meta}))
+    for offset in range(0, len(data), 16384):
+        channel.send(data[offset:offset + 16384])
+    channel.send(json.dumps({"type": "blob-end", "id": blob_id}))
+    return True
+
+
 def handle_message(raw, width, height, channel=None, on_ink=None, scene=None):
     try:
         command = json.loads(raw)
-        if command.get("type") in ("ink-live", "shape-live", "laser"):
+        if command.get("type") == "screenshot":
+            if scene:
+                asyncio.ensure_future(send_screenshot(scene, str(command.get("requestId", ""))[:64]))
+        elif command.get("type") in ("ink-live", "shape-live", "laser"):
             if scene:
                 {"ink-live": scene.ink_live, "shape-live": scene.shape_live, "laser": scene.laser_points}[command["type"]](command)
         elif command.get("type") == "clipboard-read":

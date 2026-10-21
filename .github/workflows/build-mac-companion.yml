@@ -6,6 +6,7 @@ on:
     paths:
       - "pc-companion/**"
       - ".github/workflows/build-mac-companion.yml"
+      - "installer/**"
 
 permissions:
   contents: read
@@ -14,6 +15,13 @@ jobs:
   build:
     name: Build macOS ${{ matrix.architecture }}
     runs-on: ${{ matrix.runner }}
+    env:
+      # Signing and notarisation with an Apple Developer account; skipped until these secrets exist (README "Code signing").
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,11 +50,39 @@ jobs:
         run: >-
           pyinstaller --noconfirm --clean --windowed --onedir
           --name ClassroomBridge
+          --icon assets/app.icns
+          --add-data assets:assets
+          --osx-bundle-identifier com.classroombridge.companion
+          --collect-submodules qrcode
           --collect-all aiortc --collect-all av --collect-all aioice
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
           --collect-all AppKit --collect-all Foundation --collect-all Quartz
           --add-data version.txt:.
           companion_ui.py
+
+      - name: Sign and notarise the app
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p ci "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p ci "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          test -n "$identity" || { echo "::error::No Developer ID Application certificate in MACOS_CERTIFICATE"; exit 1; }
+          app=pc-companion/dist/ClassroomBridge.app
+          # Sign every bundled library first, then the app, with the hardened runtime notarisation requires.
+          find "$app/Contents" -type f \( -name "*.so" -o -name "*.dylib" -o -perm -111 \) -print0 \
+            | xargs -0 -I{} codesign --force --timestamp --options runtime --entitlements installer/macos-entitlements.plist --sign "$identity" "{}"
+          codesign --force --timestamp --options runtime --entitlements installer/macos-entitlements.plist --sign "$identity" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/notarise.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarise.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$app"
+          spctl --assess --type execute --verbose "$app"
 
       - name: Prepare download package
         run: |
@@ -55,11 +91,15 @@ jobs:
           cat > package/Start-Here.txt <<'EOF'
           CLASSROOM BRIDGE — MAC COMPANION
 
-          1. Open ClassroomBridge.app and choose Start companion.
+          1. Move ClassroomBridge.app into Applications and open it. It connects by itself and,
+             from then on, opens automatically when you sign in (you can turn that off in its window).
+             Closing the window keeps it running; click its Dock icon to open it again, or press
+             Command-Q to quit.
           2. On first use, allow Screen Recording and Accessibility when macOS asks.
              If prompted, open System Settings > Privacy & Security and enable the app
              under Screen Recording and Accessibility, then quit and reopen it.
-          3. Enter the pairing code in Classroom Bridge on the iPad.
+          3. On the iPad, open Classroom Bridge, tap the gear, then Scan QR code and point it at the
+             QR code in the companion window (or type the code shown).
           4. Leave the companion open while teaching; choose Stop when finished.
 
           Apple Pencil annotations on the iPad are mirrored in a click-through

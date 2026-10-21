@@ -54,9 +54,20 @@ def remove_previous_version():
             pass
 
 
+def managed_install():
+    """Installed by IT with the MSI (Program Files): IT deploys updates, and teachers can't write there anyway."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return False
+    program_files = [os.environ.get(name, "") for name in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)")]
+    executable = str(pathlib.Path(sys.executable).resolve()).lower()
+    return any(folder and executable.startswith(folder.lower()) for folder in program_files)
+
+
 def find_update():
     """Returns the newest release download for this platform if it is newer than this app, else None."""
     remove_previous_version()
+    if managed_install():
+        return None
     name = asset_name()
     if not name or not getattr(sys, "frozen", False):
         return None

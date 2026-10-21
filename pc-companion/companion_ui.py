@@ -1,33 +1,46 @@
 import asyncio
 import ctypes
 import os
+import pathlib
 import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 
 import pyautogui
+import qrcode
+from PIL import Image, ImageTk
 
+import startup
+import updater
 from agent import get_or_create_pairing_code, run
 from airplay import AirPlayReceiver, get_or_create_pin, receiver_name
 from desktop_overlay import DesktopInkOverlay
 from presenter import CameraPresenter
-import updater
 
 
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
+APP_URL = "https://classroom-bridge.nathan-sant.workers.dev"
+ASSETS = pathlib.Path(getattr(sys, "_MEIPASS", pathlib.Path(__file__).parent)) / "assets"
+
+
+def pairing_qr(code, size=176):
+    """A QR code the iPad scans in Classroom Bridge (or with the Camera app) to pair without typing."""
+    image = qrcode.make(f"{APP_URL}/#pair={code}", box_size=8, border=2).convert("RGB")
+    return image.resize((size, size), Image.Resampling.NEAREST)
 
 
 class CompanionWindow:
-    def __init__(self, root):
+    def __init__(self, root, background=False):
         self.root = root
         platform_name = "Mac" if sys.platform == "darwin" else "PC"
         self.root.title(f"Classroom Bridge {platform_name} Companion")
-        self.root.geometry("520x520" if sys.platform == "darwin" else "500x450")
+        self.root.geometry("560x620" if sys.platform == "darwin" else "540x560")
         self.root.resizable(False, False)
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.messages = queue.Queue()
         self.ink_commands = queue.SimpleQueue()
         self.ink_schedule_lock = threading.Lock()
@@ -35,47 +48,140 @@ class CompanionWindow:
         self.stop_event = threading.Event()
         self.worker = None
         self.overlay = None
+        self.tray = None
+        self.tray_messages = queue.Queue()
+        self.told_about_tray = False
         self.presenter = CameraPresenter(root)
         self.airplay_messages = queue.Queue()
         self.airplay = AirPlayReceiver(self.airplay_messages.put)
         self.airplay_status = tk.StringVar(value="")
         self.update_messages = queue.Queue()
         self.available_update = None
-        self.code = tk.StringVar(value="— — — — — — — — — — — —")
-        self.status = tk.StringVar(value="Ready to start")
+        self.pairing_code = get_or_create_pairing_code()
+        self.code = tk.StringVar(value=" ".join(self.pairing_code))
+        self.status = tk.StringVar(value="Starting…")
+        self.autostart = tk.BooleanVar(value=startup.is_enabled())
+        self.set_window_icon()
 
-        frame = ttk.Frame(root, padding=24)
+        frame = ttk.Frame(root, padding=22)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Classroom Bridge", font=("Segoe UI", 20, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Keep this window open while using the iPad controller.", wraplength=440).pack(anchor="w", pady=(6, 18))
+        header = ttk.Frame(frame)
+        header.pack(fill="x")
+        try:
+            self.logo = ImageTk.PhotoImage(Image.open(ASSETS / "icon-64.png").resize((44, 44), Image.Resampling.LANCZOS))
+            ttk.Label(header, image=self.logo).pack(side="left", padx=(0, 12))
+        except OSError:
+            self.logo = None
+        titles = ttk.Frame(header)
+        titles.pack(side="left", fill="x")
+        ttk.Label(titles, text="Classroom Bridge", font=("Segoe UI", 18, "bold")).pack(anchor="w")
+        ttk.Label(titles, textvariable=self.status, wraplength=430, foreground="#35506f").pack(anchor="w")
+
         if sys.platform == "darwin":
-            ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart. For iPad pinch-to-zoom on this Mac's display, enable Accessibility → Zoom → Use keyboard shortcuts to zoom.", wraplength=460).pack(anchor="w", pady=(0, 10))
+            ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart. For iPad pinch-to-zoom on this Mac's display, enable Accessibility → Zoom → Use keyboard shortcuts to zoom.", wraplength=500).pack(anchor="w", pady=(14, 6))
             permissions = ttk.Frame(frame)
-            permissions.pack(anchor="w", pady=(0, 12))
+            permissions.pack(anchor="w")
             ttk.Button(permissions, text="Screen Recording settings", command=lambda: self.open_privacy("ScreenCapture")).pack(side="left", padx=(0, 8))
             ttk.Button(permissions, text="Accessibility settings", command=lambda: self.open_privacy("Accessibility")).pack(side="left")
-        ttk.Label(frame, text="PAIRING CODE", font=("Segoe UI", 9, "bold")).pack(anchor="center")
-        ttk.Label(frame, textvariable=self.code, font=("Consolas", 24, "bold")).pack(anchor="center", pady=(6, 10))
-        self.copy_button = ttk.Button(frame, text="Copy code", command=self.copy_code, state="disabled")
-        self.copy_button.pack(anchor="center")
-        ttk.Separator(frame).pack(fill="x", pady=18)
-        ttk.Label(frame, textvariable=self.status, wraplength=440).pack(anchor="w")
-        ttk.Label(frame, text="IPAD APPS (ONEDRIVE, POWERPOINT…)", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(14, 4))
+
+        pairing = ttk.Frame(frame)
+        pairing.pack(fill="x", pady=(18, 6))
+        self.qr_image = ImageTk.PhotoImage(pairing_qr(self.pairing_code))
+        ttk.Label(pairing, image=self.qr_image).pack(side="left", padx=(0, 18))
+        details = ttk.Frame(pairing)
+        details.pack(side="left", fill="both", expand=True)
+        ttk.Label(details, text="PAIR THE IPAD", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        ttk.Label(details, text="In Classroom Bridge on the iPad, tap ⚙ → Scan QR code and point it at this code. Or type:", wraplength=300).pack(anchor="w", pady=(4, 8))
+        ttk.Label(details, textvariable=self.code, font=("Consolas", 17, "bold")).pack(anchor="w")
+        ttk.Button(details, text="Copy code", command=self.copy_code).pack(anchor="w", pady=(8, 0))
+
+        ttk.Separator(frame).pack(fill="x", pady=14)
+        ttk.Label(frame, text="IPAD APPS (ONEDRIVE, POWERPOINT…)", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
         if self.airplay.supported:
-            ttk.Label(frame, text=f"Screen Mirroring name: {receiver_name()}    First-time PIN: {get_or_create_pin()}", wraplength=440).pack(anchor="w")
+            ttk.Label(frame, text=f"Screen Mirroring name: {receiver_name()}    First-time PIN: {get_or_create_pin()}", wraplength=500).pack(anchor="w")
             self.airplay_status.set("Starts with the companion. Windows may ask once to allow it through the firewall.")
         else:
             self.airplay_status.set("Turn on System Settings → General → AirDrop & Handoff → AirPlay Receiver, then on the iPad choose Control Centre → Screen Mirroring → this Mac.")
-        ttk.Label(frame, textvariable=self.airplay_status, wraplength=440).pack(anchor="w")
+        ttk.Label(frame, textvariable=self.airplay_status, wraplength=500).pack(anchor="w")
+
+        ttk.Separator(frame).pack(fill="x", pady=14)
+        if startup.supported():
+            if startup.managed_by_it():
+                ttk.Label(frame, text="Opens automatically when you sign in (set up by your IT department).").pack(anchor="w")
+            else:
+                ttk.Checkbutton(frame, text="Open automatically when I sign in, ready in the background", variable=self.autostart, command=self.toggle_autostart).pack(anchor="w")
         buttons = ttk.Frame(frame)
-        buttons.pack(fill="x", pady=(18, 0))
-        self.start_button = ttk.Button(buttons, text="Start companion", command=self.start)
+        buttons.pack(fill="x", pady=(14, 0))
+        self.start_button = ttk.Button(buttons, text="Start", command=self.start)
         self.start_button.pack(side="left")
         self.stop_button = ttk.Button(buttons, text="Stop", command=self.stop, state="disabled")
-        self.stop_button.pack(side="right")
+        self.stop_button.pack(side="left", padx=(8, 0))
         self.update_button = ttk.Button(buttons, text="Update", command=self.start_update)
+        ttk.Button(buttons, text="Quit", command=self.quit_app).pack(side="right")
+        ttk.Button(buttons, text="Hide window", command=self.hide_window).pack(side="right", padx=(0, 8))
+
+        if sys.platform == "darwin":
+            # Closing the window keeps the companion running; clicking the Dock icon brings it back; ⌘Q quits.
+            self.root.createcommand("::tk::mac::ReopenApplication", self.show_window)
+            self.root.createcommand("::tk::mac::Quit", self.quit_app)
+        self.start_tray()
         threading.Thread(target=self.check_for_update, daemon=True).start()
         self.root.after(100, self.poll_messages)
+        self.root.after(300, self.start)
+        if background:
+            self.root.after(800, self.hide_window)
+
+    # Window, tray and sign-in ----------------------------------------------------------------------------------------
+
+    def set_window_icon(self):
+        try:
+            if sys.platform == "win32":
+                self.root.iconbitmap(default=str(ASSETS / "app.ico"))
+            self.window_icon = ImageTk.PhotoImage(Image.open(ASSETS / "icon-256.png"))
+            self.root.iconphoto(True, self.window_icon)
+        except (OSError, tk.TclError):
+            pass
+
+    def start_tray(self):
+        if sys.platform != "win32":
+            return
+        try:
+            import pystray
+
+            menu = pystray.Menu(
+                pystray.MenuItem("Open Classroom Bridge", lambda: self.tray_messages.put("open"), default=True),
+                pystray.MenuItem("Quit", lambda: self.tray_messages.put("quit")),
+            )
+            self.tray = pystray.Icon("ClassroomBridge", Image.open(ASSETS / "icon-64.png"), "Classroom Bridge", menu)
+            self.tray.run_detached()
+        except Exception:
+            self.tray = None
+
+    def hide_window(self):
+        if sys.platform == "win32" and self.tray is None:
+            self.root.iconify()
+            return
+        self.root.withdraw()
+        if self.tray is not None and not self.told_about_tray:
+            self.told_about_tray = True
+            try:
+                self.tray.notify("Classroom Bridge is still running. Open it from the tray icon near the clock.", "Classroom Bridge")
+            except Exception:
+                pass
+
+    def show_window(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def toggle_autostart(self):
+        try:
+            startup.set_enabled(self.autostart.get())
+        except OSError as error:
+            self.status.set(f"Couldn't change the sign-in setting: {error}")
+            self.autostart.set(startup.is_enabled())
+
+    # Companion -------------------------------------------------------------------------------------------------------
 
     def start(self):
         if self.worker and self.worker.is_alive():
@@ -87,9 +193,11 @@ class CompanionWindow:
                 trusted.restype = ctypes.c_bool
                 if not trusted():
                     self.status.set("Allow Classroom Bridge under System Settings → Privacy & Security → Accessibility, then quit and reopen the app. Mouse and keyboard control need this permission.")
+                    self.show_window()
                     return
             except (AttributeError, OSError):
                 self.status.set("Could not check macOS Accessibility permission. Enable it in System Settings → Privacy & Security → Accessibility, then restart this app.")
+                self.show_window()
                 return
         try:
             screen_width, screen_height = pyautogui.size()
@@ -97,22 +205,32 @@ class CompanionWindow:
         except Exception as error:
             self.status.set(f"Could not prepare the desktop annotation overlay: {error}")
             return
-        pairing_code = get_or_create_pairing_code()
-        self.code.set(" ".join(pairing_code))
         self.status.set("Starting companion…")
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
-        self.copy_button.configure(state="normal")
         self.stop_event = threading.Event()
-        self.worker = threading.Thread(target=self.run_companion, args=(pairing_code, self.stop_event), daemon=True)
+        self.worker = threading.Thread(target=self.run_companion, args=(self.pairing_code, self.stop_event), daemon=True)
         self.worker.start()
         self.airplay.start()
 
     def run_companion(self, pairing_code, stop_event):
-        try:
-            asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.presenter.handle))
-        except Exception as error:
-            self.messages.put(f"Could not start: {error}")
+        """Keeps the companion connected: after a network drop or a sleeping PC it reconnects by itself."""
+        delay = 2
+        while not stop_event.is_set():
+            started = time.monotonic()
+            problem = "Connection closed"
+            try:
+                asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.presenter.handle))
+            except Exception as error:
+                problem = f"No connection ({str(error)[:70] or type(error).__name__})"
+            if stop_event.is_set():
+                break
+            if time.monotonic() - started > 60:
+                delay = 2
+            self.messages.put(f"{problem} — trying again in {delay} s…")
+            stop_event.wait(delay)
+            delay = min(30, delay * 2)
+        self.messages.put("Stopped. Choose Start to connect again.")
 
     def stop(self):
         self.stop_event.set()
@@ -157,8 +275,10 @@ class CompanionWindow:
 
     def copy_code(self):
         self.root.clipboard_clear()
-        self.root.clipboard_append(self.code.get().replace(" ", ""))
+        self.root.clipboard_append(self.pairing_code)
         self.status.set("Pairing code copied. Enter it on the iPad.")
+
+    # Updates ---------------------------------------------------------------------------------------------------------
 
     def check_for_update(self):
         try:
@@ -194,7 +314,7 @@ class CompanionWindow:
         if kind == "available":
             self.available_update = value
             self.update_button.configure(text=f"Update ({value['title']})")
-            self.update_button.pack(side="left", padx=(10, 0))
+            self.update_button.pack(side="left", padx=(8, 0))
         elif kind == "progress":
             self.status.set(f"Downloading the update… {int(value * 100)}%")
         elif kind == "restart":
@@ -206,26 +326,35 @@ class CompanionWindow:
             self.update_button.configure(state="normal")
 
     def quit_for_update(self):
-        self.close()
+        self.quit_app()
         os._exit(0)
 
+    # Main loop -------------------------------------------------------------------------------------------------------
+
     def poll_messages(self):
-        try:
-            while True:
-                self.status.set(self.messages.get_nowait())
-        except queue.Empty:
-            pass
-        try:
-            while True:
-                self.airplay_status.set(self.airplay_messages.get_nowait())
-        except queue.Empty:
-            pass
+        for source, handle in ((self.messages, self.status.set), (self.airplay_messages, self.airplay_status.set)):
+            try:
+                while True:
+                    handle(source.get_nowait())
+            except queue.Empty:
+                pass
         try:
             while True:
                 self.handle_update_message(*self.update_messages.get_nowait())
         except queue.Empty:
             pass
+        try:
+            while True:
+                action = self.tray_messages.get_nowait()
+                if action == "open":
+                    self.show_window()
+                elif action == "quit":
+                    self.quit_app()
+                    return
+        except queue.Empty:
+            pass
         if self.worker and not self.worker.is_alive():
+            self.worker = None
             self.airplay.stop()
             self.start_button.configure(state="normal")
             self.stop_button.configure(state="disabled")
@@ -233,10 +362,15 @@ class CompanionWindow:
             self.presenter.hide()
         self.root.after(100, self.poll_messages)
 
-    def close(self):
+    def quit_app(self):
         self.stop_event.set()
         self.airplay.stop()
         self.close_overlay()
+        if self.tray is not None:
+            try:
+                self.tray.stop()
+            except Exception:
+                pass
         self.root.destroy()
 
     def open_privacy(self, section):
@@ -244,8 +378,9 @@ class CompanionWindow:
 
 
 def main():
+    startup.apply_first_run_default()
     root = tk.Tk()
-    CompanionWindow(root)
+    CompanionWindow(root, background="--background" in sys.argv)
     root.mainloop()
 
 

@@ -1,0 +1,17 @@
+<g>
+  <g filter="url(#shadow)" stroke-linecap="round" fill="none">
+    <path d="M226 596 Q512 72 798 596" stroke="url(#steel)" stroke-width="68"/>
+    <g stroke="url(#steel)" stroke-width="30">
+      <path d="M369 440 V596"/>
+      <path d="M512 380 V596"/>
+      <path d="M655 440 V596"/>
+    </g>
+    <path d="M160 596 H864" stroke="url(#steel)" stroke-width="64"/>
+    <path d="M282 626 V700 M742 626 V700" stroke="url(#steel)" stroke-width="44"/>
+  </g>
+  <g stroke="#bfe3ff" stroke-linecap="round" fill="none" stroke-width="22">
+    <path d="M206 772 q38 -26 76 0 t76 0 t76 0 t76 0 t76 0 t76 0 t76 0" stroke-opacity="0.55"/>
+    <path d="M300 846 q38 -26 76 0 t76 0 t76 0 t76 0 t76 0" stroke-opacity="0.28"/>
+  </g>
+  <circle cx="512" cy="336" r="62" fill="url(#spark)" stroke="#ffffff" stroke-width="24"/>
+</g>

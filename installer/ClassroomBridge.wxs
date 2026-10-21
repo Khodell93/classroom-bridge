@@ -1,0 +1,53 @@
+<!--
+  Classroom Bridge companion — per-machine Windows installer (WiX Toolset 5).
+  IT can deploy it silently, e.g. with Intune or Group Policy:
+    msiexec /i ClassroomBridge-Windows-x64.msi /qn              (opens at sign-in for every user)
+    msiexec /i ClassroomBridge-Windows-x64.msi /qn AUTOSTART=0  (installed, but teachers open it themselves)
+  It also adds Windows Firewall rules (local network only) for the AirPlay receiver, so teachers never see a
+  firewall prompt. Updates are new MSIs; installing one replaces the previous version.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+  <Package Name="Classroom Bridge" Manufacturer="Classroom Bridge" Version="$(var.Version)"
+           UpgradeCode="6D3B2E8A-41F7-4C2D-9B1E-5A8F0C7D2E94" Scope="perMachine" Compressed="yes">
+    <SummaryInformation Description="Classroom Bridge companion for the classroom PC" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Classroom Bridge is already installed." AllowSameVersionUpgrades="yes" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Icon Id="AppIcon" SourceFile="$(var.AssetsDir)\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Khodell93/classroom-bridge-downloads" />
+    <Property Id="AUTOSTART" Value="1" Secure="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Classroom Bridge">
+        <Directory Id="AIRPLAYFOLDER" Name="airplay" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="Classroom Bridge">
+      <Component Id="CompanionComponent" Directory="INSTALLFOLDER">
+        <File Id="ClassroomBridgeExe" Source="$(var.SourceDir)\ClassroomBridge.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Classroom Bridge"
+                    Description="Connect the classroom iPad" Icon="AppIcon" WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
+        </File>
+      </Component>
+      <Component Id="StartHereComponent" Directory="INSTALLFOLDER">
+        <File Id="StartHere" Source="$(var.SourceDir)\Start-Here.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="AutostartComponent" Directory="INSTALLFOLDER" Condition="AUTOSTART = 1">
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="ClassroomBridge"
+                       Type="string" Value="&quot;[INSTALLFOLDER]ClassroomBridge.exe&quot; --background" KeyPath="yes" />
+      </Component>
+      <Component Id="AirPlayReceiverComponent" Directory="AIRPLAYFOLDER">
+        <File Id="UxPlayExe" Source="$(var.SourceDir)\airplay\uxplay.exe" KeyPath="yes">
+          <fw:FirewallException Id="AirPlayReceiverFirewall" Name="Classroom Bridge AirPlay receiver" Scope="localSubnet" />
+        </File>
+        <fw:FirewallException Id="AirPlayDiscoveryFirewall" Name="Classroom Bridge AirPlay discovery" Port="5353" Protocol="udp" Scope="localSubnet" />
+      </Component>
+      <Files Include="$(var.SourceDir)\airplay\**" Directory="AIRPLAYFOLDER">
+        <Exclude Files="$(var.SourceDir)\airplay\uxplay.exe" />
+      </Files>
+    </Feature>
+  </Package>
+</Wix>

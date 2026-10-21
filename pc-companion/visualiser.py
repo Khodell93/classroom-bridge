@@ -24,6 +24,7 @@ import threading
 import time
 from collections import OrderedDict
 
+import mss
 import numpy as np
 from aiortc.mediastreams import MediaStreamError
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -302,10 +303,13 @@ def apply_adjust(image, adjust):
 # ---------- The scene ----------
 
 class VisualiserScene:
-    def __init__(self, screen_size, show, reply):
+    def __init__(self, screen_size, show, reply, send_media=None):
         self.screen_size = screen_size
-        self.show = show          # presenter callback: {"type": "show", "image"} | {"type": "blank"} | {"type": "hide"}
+        # presenter callback: {"type": "show", "image"} | {"type": "pip", "image", "corner"} | {"type": "blank"} | {"type": "hide"}
+        self.show = show
         self.reply = reply        # sends a dict to the iPad on the control channel
+        self.send_media = send_media  # sends a blob (kind, bytes, meta) to the iPad on the media channel
+        self.pip = ("br", 0.32)
         self.lock = threading.Lock()
         self.mode = "pc"
         self.rotation = 0
@@ -328,7 +332,7 @@ class VisualiserScene:
 
     def set_scene(self, message):
         mode = message.get("mode")
-        if mode not in ("pc", "live", "photo", "blank", "hold"):
+        if mode not in ("pc", "live", "photo", "blank", "hold", "pip"):
             return
         if mode == "hold":
             with self.lock:
@@ -350,6 +354,8 @@ class VisualiserScene:
             self.adjust = clean_adjust(message.get("adjust"))
             self.spotlight = clean_spotlight(message.get("spotlight"))
             self.curtain = clean_curtain(message.get("curtain"))
+            corner = message.get("corner") if message.get("corner") in ("tl", "tr", "bl", "br") else "br"
+            self.pip = (corner, clamp(message.get("size"), 0.15, 0.6, 0.32))
             self.provisional = {}
             self.shape = None
             self.layers = None
@@ -477,21 +483,27 @@ class VisualiserScene:
         return image, bool(trail)
 
     def wants_live_frames(self):
-        return self.mode == "live"
+        return self.mode in ("live", "pip")
 
     def compose_live(self, frame):
         """Runs in a worker thread: converts one decoded video frame to the displayed, annotated image and shows it.
         Showing happens under the lock, so a frame can never reach the display after the scene has moved on."""
         rotation = self.rotation
         width, height = (frame.height, frame.width) if rotation in (90, 270) else (frame.width, frame.height)
-        target = fit_size(width, height, *self.screen_size)
+        pip = self.mode == "pip"
+        corner, share = self.pip
+        bounds = (self.screen_size[0] * share, self.screen_size[1] * share) if pip else self.screen_size
+        target = fit_size(width, height, *bounds)
         source = (target[1], target[0]) if rotation in (90, 270) else target
         image = frame.reformat(width=source[0], height=source[1], format="rgb24").to_image()
         if rotation:
             image = image.transpose(ROTATIONS[rotation])
         image = apply_adjust(image, self.adjust)
         with self.lock:
-            if self.mode != "live":
+            if self.mode == "pip" and pip:
+                self.show({"type": "pip", "image": image, "corner": corner})
+                return
+            if self.mode != "live" or pip:
                 return
             image, _ = self._finish(image, (0.0, 0.0, 1.0))
             self.show({"type": "show", "image": image})
@@ -531,6 +543,26 @@ class VisualiserScene:
 
         if await asyncio.to_thread(compose):
             self.schedule_photo(0.04)  # keep the laser trail fading
+
+
+def grab_screen():
+    """The whole main display at full resolution, including the desktop ink overlay."""
+    with mss.mss() as capture:
+        shot = capture.grab(capture.monitors[1])
+        image = Image.frombytes("RGB", shot.size, shot.rgb)
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=90)
+    return buffer.getvalue(), image.size
+
+
+async def send_screenshot(scene, request_id):
+    try:
+        data, (width, height) = await asyncio.to_thread(grab_screen)
+    except Exception as error:  # screen capture permission (macOS) or display errors
+        scene.reply({"type": "screenshot-error", "requestId": request_id, "message": str(error)})
+        return
+    if not scene.send_media or not scene.send_media("screenshot", data, {"requestId": request_id, "width": width, "height": height}):
+        scene.reply({"type": "screenshot-error", "requestId": request_id, "message": "The connection closed."})
 
 
 async def relay_camera(track, scene):

@@ -9,3 +9,5 @@ pyperclip>=1.9
 websockets>=13,<16
 pyobjc-framework-Cocoa>=10; sys_platform == "darwin"
 pyobjc-framework-Quartz>=10; sys_platform == "darwin"
+qrcode>=7.4
+pystray>=0.19; sys_platform == "win32"

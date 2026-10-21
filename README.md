@@ -43,6 +43,24 @@ The Windows executable is produced by the GitHub Actions workflow at `.github/wo
 
 The companion captures and controls the signed-in Windows desktop after the iPad pairs. Use it only on a school-approved PC and close it when finished.
 
+## Everyday use
+
+- **Opens by itself:** the companion connects as soon as it opens, reconnects after a network drop or sleep, and (after the first run) opens automatically at sign-in, quietly in the background. Closing its window keeps it running — in the system tray on Windows, in the Dock on a Mac. The window has a switch to stop opening at sign-in, and **Quit** to stop completely.
+- **Pair by QR code:** the companion window shows a QR code; on the iPad tap ⚙ → **Scan QR code**. The code is a link (`…/#pair=CODE`), so scanning it with the iPad Camera app also pairs. The QR reader (jsQR, Apache-2.0) is bundled in `public/vendor/` so it works on locked-down networks.
+- **Save PC screen** (⎙ in PC mode): the PC captures its whole screen, including Apple Pencil ink on its overlay, and the photo is added to the current lesson, so it appears in the filmstrip and the lesson PDF.
+- **Camera in a corner** (◳ in PC mode): the live iPad camera appears in a corner of the PC display over a slide; move it between corners, change its size (S/M/L) or hide it from the preview on the iPad.
+
+## School IT: Windows installer (MSI)
+
+Each Windows build also produces `ClassroomBridge-Windows-x64.msi` (WiX Toolset 5, `installer/ClassroomBridge.wxs`): a per-machine install into Program Files with a Start menu entry, Windows Firewall rules for the AirPlay receiver (local subnet only), and opening at sign-in for every user. Silent install: `msiexec /i ClassroomBridge-Windows-x64.msi /qn` (add `AUTOSTART=0` to skip opening at sign-in). New MSIs upgrade in place. MSI installs don't self-update (teachers can't write to Program Files); IT deploys the newer MSI. CI installs and uninstalls the MSI on a Windows runner to check files, firewall rules, the shortcut and the sign-in entry.
+
+## Code signing
+
+Unsigned apps trigger Windows SmartScreen and macOS Gatekeeper warnings. The build workflows sign automatically once these repository secrets exist, and skip signing until then:
+
+- **Windows** — Microsoft Trusted Signing (Azure Artifact Signing, about US$10/month): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (an app registration with the *Artifact Signing Certificate Profile Signer* role), `SIGNING_ENDPOINT` (e.g. `https://weu.codesigning.azure.net/`), `SIGNING_ACCOUNT`, `SIGNING_PROFILE`. Microsoft decides eligibility (identity validation; individual developers have been limited to some countries, organisations need verifiable history) — a school or trust may need to own the account.
+- **macOS** — Apple Developer Program (about £79/year): `MACOS_CERTIFICATE` (base64 of a *Developer ID Application* .p12), `MACOS_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` (an app-specific password). The app is signed with the hardened runtime (`installer/macos-entitlements.plist`), notarised and stapled.
+
 ## Companion downloads and updates
 
 Each companion build on `main` or the development branch is published as a release of the public [classroom-bridge-downloads](https://github.com/Khodell93/classroom-bridge-downloads/releases/latest) repository (only the built apps; this source repository stays private). Installed companions check those releases when they open and show an **Update** button when a newer build exists; it downloads the update, checks it against the published SHA-256, replaces the app and reopens it. On a Mac the app must be in a folder the account can write to (normally Applications), not run directly from Downloads.

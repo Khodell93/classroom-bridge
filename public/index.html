@@ -8,14 +8,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Classroom Bridge">
     <link rel="manifest" href="/manifest.json">
-    <link rel="apple-touch-icon" href="/icon.svg">
+    <link rel="apple-touch-icon" href="/icon-180.png">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="stylesheet" href="/styles.css">
     <title>Classroom Bridge</title>
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div class="brand"><span class="brand-mark">CB</span><span>Classroom Bridge</span></div>
+        <div class="brand"><img class="brand-mark" src="/icon.svg" alt=""><span>Classroom Bridge</span></div>
         <div class="topbar-actions">
           <span id="connection-status" class="status"><i></i><span>Not connected</span></span>
           <button id="setup-open" class="icon-button" aria-label="Connection settings" title="Connection settings">⚙</button>
@@ -30,7 +31,20 @@
               <canvas id="pc-ink" class="ink-layer"></canvas>
             </div>
             <div id="pc-touch-ring" class="pc-touch-ring" hidden></div>
-            <button id="pc-keyboard" class="glass-button pc-keyboard" aria-label="Open the keyboard to type on the PC" title="Keyboard">⌨</button>
+            <div class="pc-actions">
+              <button id="pc-pip" class="glass-button pc-action" aria-label="Show the iPad camera in a corner of the PC screen" title="Camera in a corner">◳</button>
+              <button id="pc-capture" class="glass-button pc-action" aria-label="Save the PC screen, with your ink, to this lesson" title="Save PC screen to lesson">⎙</button>
+              <button id="pc-keyboard" class="glass-button pc-action" aria-label="Open the keyboard to type on the PC" title="Keyboard">⌨</button>
+            </div>
+            <div id="pc-pip-panel" class="pc-pip-panel" data-corner="br" hidden>
+              <video id="pc-pip-video" autoplay playsinline muted></video>
+              <div class="pc-pip-controls">
+                <button id="pc-pip-corner" aria-label="Move to another corner" title="Move">↻</button>
+                <button id="pc-pip-size" aria-label="Change size" title="Size">M</button>
+                <button id="pc-pip-close" aria-label="Hide the camera" title="Hide">✕</button>
+              </div>
+            </div>
+            <div id="pc-flash" class="vis-flash" hidden></div>
             <div id="pc-placeholder" class="stage-placeholder">
               <span class="placeholder-icon">▣</span>
               <strong>Ready when you are</strong>
@@ -179,7 +193,6 @@
                 <button id="vis-result-close" class="vis-action">Close</button>
               </div>
             </div>
-            <div id="vis-toast" class="vis-toast" role="status" hidden></div>
             <div id="camera-placeholder" class="stage-placeholder">
               <span class="placeholder-icon">◉</span>
               <strong>Camera or photo</strong>
@@ -289,6 +302,7 @@
             <button id="disconnect-button" class="disconnect-button">Disconnect</button>
           </div>
         </section>
+        <div id="vis-toast" class="vis-toast" role="status" hidden></div>
       </section>
 
       <div id="setup-modal" class="modal-overlay">
@@ -298,6 +312,8 @@
           <p class="eyebrow">Classroom Bridge</p>
           <h1 id="setup-title">Connect your classroom PC</h1>
           <p class="setup-copy">Start the companion, then enter its pairing code here. Keep Classroom Bridge open in the foreground for the most reliable connection. If iPadOS pauses it while you switch apps or lock the screen, it will reconnect when you return.</p>
+          <button id="scan-qr" class="primary connect-submit scan-button" type="button">▣ Scan QR code</button>
+          <p class="scan-or">or type the code shown on the PC</p>
           <label for="pair-code">PC pairing code</label>
           <input id="pair-code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="12-character code">
           <label class="remember-option"><input id="remember-code" type="checkbox"><span><strong>Remember this code on this iPad</strong><small>The code is like a key to your PC while its companion is running.</small></span></label>
@@ -307,10 +323,17 @@
         </section>
       </div>
     </main>
+    <div id="qr-scanner" class="qr-scanner" role="dialog" aria-label="Scan the pairing QR code" hidden>
+      <video id="qr-video" autoplay playsinline muted></video>
+      <div class="qr-frame"></div>
+      <p id="qr-message" class="qr-message"></p>
+      <button id="qr-cancel" class="secondary qr-cancel">Cancel</button>
+    </div>
     <input id="remote-typing-input" class="remote-typing-input" aria-label="Type on the connected computer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
     <script src="/vis-items.js" defer></script>
     <script src="/visualiser.js" defer></script>
     <script src="/vis-extras.js" defer></script>
+    <script src="/pc-tools.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

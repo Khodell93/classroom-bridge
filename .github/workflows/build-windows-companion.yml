@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - "pc-companion/**"
+      - "installer/**"
       - ".github/workflows/build-windows-companion.yml"
 
 permissions:
@@ -13,6 +14,15 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # Code signing (Microsoft Trusted Signing / Azure Artifact Signing). Every signing step is skipped until
+      # these repository secrets exist — see README "Code signing".
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      SIGNING_ENDPOINT: ${{ secrets.SIGNING_ENDPOINT }}
+      SIGNING_ACCOUNT: ${{ secrets.SIGNING_ACCOUNT }}
+      SIGNING_PROFILE: ${{ secrets.SIGNING_PROFILE }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -38,9 +48,13 @@ jobs:
         run: >-
           pyinstaller --noconfirm --clean --onefile --windowed
           --name ClassroomBridge
+          --icon assets/app.ico
+          --add-data assets:assets
+          --add-data version.txt:.
+          --hidden-import pystray._win32
+          --collect-submodules qrcode
           --collect-all aiortc --collect-all av --collect-all aioice
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
-          --add-data version.txt:.
           companion_ui.py
 
       - name: Set up MSYS2 for the AirPlay receiver
@@ -91,6 +105,23 @@ jobs:
           Stop-Process -Id $receiver.Id
           "Bundle size: {0:N0} MB" -f ((Get-ChildItem $airplay -Recurse | Measure-Object Length -Sum).Sum / 1MB)
 
+      - name: Sign the programs
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
+          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\pc-companion\dist\ClassroomBridge.exe
+            ${{ github.workspace }}\package\airplay\uxplay.exe
+          file-digest: SHA256
+          timestamp-digest: SHA256
+          description: Classroom Bridge
+
       - name: Prepare download package
         shell: pwsh
         run: |
@@ -99,19 +130,25 @@ jobs:
           $quickStart = @'
           CLASSROOM BRIDGE — WINDOWS COMPANION
 
-          1. Open ClassroomBridge.exe on the school PC and choose Start companion.
-          2. Enter the displayed pairing code in Classroom Bridge on the iPad.
-          3. Leave this window open while teaching. Choose Stop when finished.
+          1. Open ClassroomBridge.exe on the school PC. It connects by itself and, from then on,
+             opens automatically when you sign in (you can turn that off in its window).
+          2. On the iPad, open Classroom Bridge, tap the gear, then Scan QR code and point the
+             iPad at the QR code in the companion window (or type the code shown).
+          3. Closing the window keeps it running in the system tray near the clock. Use Quit there
+             to stop it completely.
 
-          Apple Pencil annotations on the iPad are mirrored in a click-through
-          overlay on the PC display. Use Clear ink in the iPad tools to remove them.
+          Apple Pencil annotations on the iPad are mirrored in a click-through overlay on the PC
+          display. Use Clear ink in the iPad tools to remove them.
 
-          iPad apps (OneDrive, PowerPoint, PDFs): keep ClassroomBridge.exe next to the
-          "airplay" folder. While the companion runs, open Control Centre on the iPad,
-          tap Screen Mirroring and choose "Classroom Bridge - <PC name>". The first
-          time, enter the PIN shown in the companion window. Windows may ask once to
-          allow the receiver through the firewall (school IT may need to approve).
+          iPad apps (OneDrive, PowerPoint, PDFs): keep ClassroomBridge.exe next to the "airplay"
+          folder. On the iPad, open Control Centre, tap Screen Mirroring and choose
+          "Classroom Bridge - <PC name>". The first time, enter the PIN shown in the companion window.
+          Windows may ask once to allow the receiver through the firewall (school IT may need to approve).
           The iPad and PC must be on the same school network, as with an Apple TV.
+
+          For school IT: ClassroomBridge-Windows-x64.msi installs for all users, adds the firewall
+          rules and opens at sign-in. Silent install: msiexec /i ClassroomBridge-Windows-x64.msi /qn
+          (add AUTOSTART=0 to skip opening at sign-in).
 
           The app captures and controls the signed-in Windows desktop after a paired iPad connects.
           Use only on a school-approved PC. If Windows or school security blocks the app,
@@ -120,11 +157,66 @@ jobs:
           $quickStart | Set-Content package/Start-Here.txt
           Compress-Archive -Path package/* -DestinationPath ClassroomBridge-Windows-x64.zip
 
+      - name: Build the MSI installer
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.Firewall.wixext/5.0.2
+          # MSI versions are major.minor.build with build < 65536: 1.<year>.<ten-minute slot in the year>.
+          $time = [DateTimeOffset]::FromUnixTimeSeconds([int64](Get-Content pc-companion/version.txt)).UtcDateTime
+          $slot = [int][Math]::Floor(($time - [datetime]::new($time.Year, 1, 1)).TotalMinutes / 10)
+          $version = "1.$($time.Year - 2000).$slot"
+          "MSI version $version"
+          wix build installer/ClassroomBridge.wxs -arch x64 -ext WixToolset.Firewall.wixext `
+            -d Version=$version -d SourceDir=package -d AssetsDir=pc-companion/assets `
+            -o ClassroomBridge-Windows-x64.msi
+          if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+
+      - name: Sign the installer
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
+          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\ClassroomBridge-Windows-x64.msi
+          file-digest: SHA256
+          timestamp-digest: SHA256
+          description: Classroom Bridge
+
+      - name: Check the installer installs and uninstalls cleanly
+        shell: pwsh
+        run: |
+          $msi = Resolve-Path ClassroomBridge-Windows-x64.msi
+          $install = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v `"$env:RUNNER_TEMP\install.log`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 60; throw "Install failed ($($install.ExitCode))" }
+          $folder = "$env:ProgramFiles\Classroom Bridge"
+          foreach ($path in "ClassroomBridge.exe", "airplay\uxplay.exe", "airplay\lib\gstreamer-1.0") {
+            if (-not (Test-Path "$folder\$path")) { throw "Missing after install: $path" }
+          }
+          $run = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name ClassroomBridge -ErrorAction SilentlyContinue
+          if (-not $run) { throw "Sign-in start entry missing" }
+          "Starts at sign-in: $($run.ClassroomBridge)"
+          $rules = Get-NetFirewallRule -DisplayName "Classroom Bridge AirPlay*" -ErrorAction SilentlyContinue
+          if ($rules.Count -lt 2) { throw "Firewall rules missing" }
+          $rules | Format-Table DisplayName, Enabled, Direction, Action -AutoSize
+          if (-not (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Classroom Bridge.lnk")) { throw "Start menu shortcut missing" }
+          $remove = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "Uninstall failed ($($remove.ExitCode))" }
+          if (Test-Path "$folder\ClassroomBridge.exe") { throw "Files left after uninstall" }
+          if (Get-NetFirewallRule -DisplayName "Classroom Bridge AirPlay*" -ErrorAction SilentlyContinue) { throw "Firewall rules left after uninstall" }
+          "Installer checks passed"
+
       - name: Publish build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ClassroomBridge-Windows-x64
-          path: ClassroomBridge-Windows-x64.zip
+          path: |
+            ClassroomBridge-Windows-x64.zip
+            ClassroomBridge-Windows-x64.msi
           if-no-files-found: error
           retention-days: 30
 
@@ -133,4 +225,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
-        run: bash pc-companion/publish_release.sh ClassroomBridge-Windows-x64.zip
+        run: bash pc-companion/publish_release.sh ClassroomBridge-Windows-x64.zip ClassroomBridge-Windows-x64.msi

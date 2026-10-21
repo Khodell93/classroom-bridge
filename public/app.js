@@ -292,6 +292,7 @@ async function connect() {
         mediaChannel.binaryType = "arraybuffer";
         mediaChannel.bufferedAmountLowThreshold = 256 * 1024;
         mediaChannel.onopen = visualiserMediaChannelOpened;
+        mediaChannel.onmessage = pcMediaMessage;
         return;
       }
       controlChannel = event.channel;
@@ -559,6 +560,10 @@ function clipboardMessage(event) {
     document.querySelector('[data-shortcut="win+e"]').textContent = hostPlatform === "macos" ? "Open Finder" : "Win+E · Files";
     document.querySelector('[data-shortcut="alt+tab"]').textContent = hostPlatform === "macos" ? "⌘+Tab" : "Alt+Tab";
     document.querySelector("#open-explorer strong").textContent = hostPlatform === "macos" ? "Open Finder" : "File Explorer";
+    return;
+  }
+  if (message.type === "screenshot-error") {
+    screenshotFailed(message);
     return;
   }
   if (["need-photo", "saved", "save-error"].includes(message.type)) {
@@ -1022,4 +1027,5 @@ if (savedCode) {
 if (readStoredValue(FIRST_OPEN_KEY)) setupModal.hidden = true;
 else writeStoredValue(FIRST_OPEN_KEY, "true");
 initVisualiser();
+initPcTools();
 updateModeControls();

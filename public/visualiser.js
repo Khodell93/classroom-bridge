@@ -49,6 +49,7 @@ const visualiser = {
   hold: false,
   spotlight: null,       // { x, y, r } in image coordinates
   curtain: null,         // { reveal } fraction shown from the top
+  pip: null,             // { corner, size } picture-in-picture camera over the PC screen (PC mode)
   pencilSeen: false,
   active: null,          // stroke or shape being drawn
   activePointer: undefined,
@@ -595,7 +596,12 @@ function commitTextEditor() {
 // ---------- Talking to the PC ----------
 
 function sceneMessage() {
-  if (currentMode !== "camera") return { type: "scene", mode: "pc" };
+  if (currentMode !== "camera") {
+    if (visualiser.pip && cameraView === "live") {
+      return { type: "scene", mode: "pip", corner: visualiser.pip.corner, size: visualiser.pip.size, rotation: visualiser.liveRotation, adjust: visualiser.liveAdjust };
+    }
+    return { type: "scene", mode: "pc" };
+  }
   if (visualiser.hold) return { type: "scene", mode: "hold" };
   if (visualiser.blank) return { type: "scene", mode: "blank" };
   const overlays = { spotlight: visualiser.spotlight, curtain: visualiser.curtain };
@@ -688,7 +694,9 @@ function visualiserMessage(message) {
 
 async function attachCameraTrack() {
   if (!cameraSender) return;
-  const sending = currentMode === "camera" && cameraView === "live" && visualiser.page === "live" && !visualiser.hold && !visualiser.blank;
+  const sending = cameraView === "live" && (
+    (currentMode === "camera" && visualiser.page === "live" && !visualiser.hold && !visualiser.blank)
+    || (currentMode === "pc" && Boolean(visualiser.pip)));
   const track = sending ? cameraTrack() ?? null : null;
   try {
     if (cameraSender.track === track) return;
@@ -739,6 +747,7 @@ async function startCamera(facing) {
   cameraVideo.onloadedmetadata = () => { layoutCameraVideo(); requestInkRender(); };
   cameraView = "live";
   showLive();
+  if (typeof updatePipControls === "function") updatePipControls();
 }
 
 function stopCamera() {
@@ -1465,6 +1474,7 @@ function renderFilmstrip() {
 // app.js calls this when the screen source changes (PC / Camera).
 function visualiserModeChanged(mode) {
   if (mode !== "camera") closeFlyouts();
+  if (typeof updatePipControls === "function") updatePipControls();
   updateVisualiserControls();
   renderFilmstrip();
   requestInkRender();
