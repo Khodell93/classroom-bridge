@@ -16,10 +16,24 @@ notes="Companion apps for the Classroom Bridge iPad controller.
 - Mac (M-series): ClassroomBridge-macOS-Apple-Silicon-arm64.zip. Older Intel Macs: ClassroomBridge-macOS-Intel-x64.zip.
 
 Installed companions install this update automatically. The apps are unsigned; school IT may need to approve them."
+# The release only becomes "Latest" (what the download page links to) once every platform's files are on it;
+# the Mac build usually finishes first. Installed companions read the release list, so they don't depend on this.
+expected="ClassroomBridge-Windows-x64.zip ClassroomBridge-Windows-x64.msi ClassroomBridge-macOS-Apple-Silicon-arm64.zip ClassroomBridge-macOS-Intel-x64.zip"
 for attempt in 1 2 3 4 5; do
-  if gh release view "$tag" -R "$repo" >/dev/null 2>&1 || gh release create "$tag" -R "$repo" --title "$title" --notes "$notes" >/dev/null 2>&1; then
+  if gh release view "$tag" -R "$repo" >/dev/null 2>&1 || gh release create "$tag" -R "$repo" --title "$title" --notes "$notes" --latest=false >/dev/null 2>&1; then
     if gh release upload "$tag" "$@" -R "$repo" --clobber; then
       echo "Published $* to https://github.com/$repo/releases/tag/$tag"
+      assets=$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name')
+      complete=yes
+      for name in $expected; do
+        grep -qx "$name" <<<"$assets" || complete=no
+      done
+      if [ "$complete" = yes ]; then
+        gh release edit "$tag" -R "$repo" --latest
+        echo "All downloads are present: $tag is now the latest release."
+      else
+        echo "Waiting for the other platform's build before marking $tag as the latest release."
+      fi
       exit 0
     fi
   fi
