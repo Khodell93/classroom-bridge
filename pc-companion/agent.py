@@ -16,7 +16,7 @@ import numpy as np
 import pyautogui
 import pyperclip
 import websockets
-from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription, VideoStreamTrack
+from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription, VideoStreamTrack, rate
 from aiortc.codecs import h264, vpx
 from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
@@ -27,6 +27,37 @@ from visualiser import MediaReceiver, VisualiserScene, relay_camera, send_screen
 # aiortc caps video at 1.5 Mbps (VP8) by default, which blurs text on a classroom display.
 vpx.MAX_BITRATE = h264.MAX_BITRATE = 6_000_000
 vpx.DEFAULT_BITRATE = h264.DEFAULT_BITRATE = 2_000_000
+
+# The iPad's camera: tell its encoder there is plenty of bandwidth, as AirPlay assumes on a local network.
+# aiortc's delay-based estimate starts low, climbs for ~40 s, and halves whenever Wi-Fi delay jitters, so the
+# camera looked soft for the first half-minute and after every hiccup. The iPad's own loss-based control still
+# backs off if packets are genuinely being lost.
+CAMERA_BITRATE_FLOOR = 12_000_000  # matches the iPad camera's maxBitrate in visualiser.js
+
+
+def apply_lan_bitrate_floor():
+    original_add = rate.RemoteBitrateEstimator.add
+    if getattr(original_add, "lan_floor", False):
+        return
+
+    def add(self, arrival_time_ms, abs_send_time, payload_size, ssrc):
+        estimate = original_add(self, arrival_time_ms, abs_send_time, payload_size, ssrc)
+        if estimate is None:
+            # Report the floor from the first packets instead of waiting for the estimator's first update.
+            last = getattr(self, "lan_floor_sent_ms", None)
+            if last is not None and arrival_time_ms - last < 500:
+                return None
+            estimate = (0, list(self.ssrcs))
+        self.lan_floor_sent_ms = arrival_time_ms
+        bitrate, ssrcs = estimate
+        return max(bitrate, CAMERA_BITRATE_FLOOR), ssrcs
+
+    add.lan_floor = True
+    add.original = original_add
+    rate.RemoteBitrateEstimator.add = add
+
+
+apply_lan_bitrate_floor()
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0

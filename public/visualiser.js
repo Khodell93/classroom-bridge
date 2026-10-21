@@ -704,11 +704,12 @@ async function attachCameraTrack() {
     const settings = track.getSettings();
     const parameters = cameraSender.getParameters();
     if (!parameters.encodings?.length) return;
-    // Up to 1080p at a high bitrate; "balanced" lowers detail briefly rather than freezing frames when the network dips.
-    parameters.encodings[0].maxBitrate = 6_000_000;
+    // Like AirPlay: full 1080p, hardware H.264 at a high bitrate (the companion reports plenty of bandwidth from the
+    // start). If the network really can't keep up, keep the detail sharp and drop frames rather than blur the page.
+    parameters.encodings[0].maxBitrate = 12_000_000;
     parameters.encodings[0].maxFramerate = 30;
     parameters.encodings[0].scaleResolutionDownBy = Math.max(1, Math.max(settings.width || 1920, settings.height || 1080) / 1920);
-    parameters.degradationPreference = "balanced";
+    parameters.degradationPreference = "maintain-resolution";
     await cameraSender.setParameters(parameters);
   } catch {}
 }
