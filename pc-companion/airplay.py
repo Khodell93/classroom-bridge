@@ -45,6 +45,58 @@ def get_or_create_pin():
     return pin
 
 
+def registry_file(folder):
+    """GStreamer's plugin cache. One per install folder and version: a cache written by another copy (an old
+    download, a previous version) can point at plugins that are no longer there, and then the receiver stops
+    with "Required gstreamer plugin ... not found"."""
+    import hashlib
+    import updater
+
+    key = hashlib.sha1(f"{folder}|{updater.current_version()}".encode()).hexdigest()[:12]
+    current = settings_dir() / f"gstreamer-registry-{key}.bin"
+    for old in settings_dir().glob("gstreamer-registry*.bin"):
+        if old != current:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    return current
+
+
+def receiver_environment(folder):
+    environment = dict(os.environ)
+    environment.update({
+        "PATH": f"{folder}{os.pathsep}{environment.get('PATH', '')}",
+        "GST_PLUGIN_PATH": str(folder / "lib" / "gstreamer-1.0"),
+        "GST_PLUGIN_SYSTEM_PATH_1_0": str(folder / "lib" / "gstreamer-1.0"),
+        "GST_PLUGIN_SCANNER": str(folder / "libexec" / "gstreamer-1.0" / "gst-plugin-scanner.exe"),
+        # Load plugins inside uxplay.exe, whose folder holds every DLL they need. The separate scanner lives in a
+        # subfolder, so Windows could pick up different copies of shared DLLs from System32 first.
+        "GST_REGISTRY_FORK": "no",
+        "GST_REGISTRY_1_0": str(registry_file(folder)),
+        "UXPLAYRC": str(settings_dir() / "uxplayrc-unused"),
+    })
+    return environment
+
+
+def plugin_diagnostics(folder):
+    """gst-inspect's own report on the video decoder plugin, for the log."""
+    inspect = folder / "gst-inspect-1.0.exe"
+    plugin = folder / "lib" / "gstreamer-1.0" / "libgstlibav.dll"
+    lines = ["", "--- Diagnostics ---", f"libgstlibav.dll present: {plugin.exists()}"]
+    if not inspect.exists():
+        return lines
+    try:
+        result = subprocess.run(
+            [str(inspect), str(plugin)], cwd=folder, env=receiver_environment(folder), capture_output=True,
+            text=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        lines += [line for line in (result.stdout + result.stderr).splitlines()[:40] if line.strip()]
+    except (OSError, subprocess.TimeoutExpired) as error:
+        lines.append(f"gst-inspect failed: {error}")
+    return lines
+
+
 class AirPlayReceiver:
     def __init__(self, notify):
         self.notify = notify
@@ -71,15 +123,7 @@ class AirPlayReceiver:
             self.notify("iPad apps (AirPlay) is not included in this build.")
             return
         data = settings_dir()
-        environment = dict(os.environ)
-        environment.update({
-            "PATH": f"{folder}{os.pathsep}{environment.get('PATH', '')}",
-            "GST_PLUGIN_PATH": str(folder / "lib" / "gstreamer-1.0"),
-            "GST_PLUGIN_SYSTEM_PATH_1_0": str(folder / "lib" / "gstreamer-1.0"),
-            "GST_PLUGIN_SCANNER": str(folder / "libexec" / "gstreamer-1.0" / "gst-plugin-scanner.exe"),
-            "GST_REGISTRY_1_0": str(data / "gstreamer-registry.bin"),
-            "UXPLAYRC": str(data / "uxplayrc-unused"),
-        })
+        environment = receiver_environment(folder)
         arguments = [
             str(executable),
             "-n", receiver_name(), "-nh",
@@ -157,6 +201,10 @@ class AirPlayReceiver:
         process.wait()
         if process is not self.process:
             return  # stopped on purpose
+        if any("required gstreamer plugin" in line.lower() for line in self.log_lines):
+            # Usually a stale plugin cache; start again with a fresh one. Also record why Windows couldn't load it.
+            self.log_lines += plugin_diagnostics(bundled_receiver_dir())
+            registry_file(bundled_receiver_dir()).unlink(missing_ok=True)
         self.process = None
         self.beacon.stop()
         log_path = settings_dir() / "airplay-log.txt"
@@ -228,6 +276,8 @@ def explain_failure(lines, code):
     if any(sign in text for sign in ("error listening", "error initialising socket", "address already in use", "10048")):
         return ("another program is using the AirPlay ports (TCP 7000, 7001, 7100). Close other AirPlay receivers "
                 "or other copies of Classroom Bridge, or restart the PC.")
+    if "required gstreamer plugin" in text:
+        return "its video player couldn't load (a plugin cache problem, or security software blocking a file)."
     if "dnssd" in text or "dns-sd" in text:
         return "network discovery (mDNS) couldn't start on this PC."
     problem = next((line for line in reversed(lines) if any(word in line.lower() for word in ("error", "fail", "cannot", "could not"))), None)

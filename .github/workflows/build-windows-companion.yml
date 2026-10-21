@@ -91,6 +91,9 @@ jobs:
         shell: msys2 {0}
         run: bash pc-companion/bundle_airplay.sh uxplay-src package/airplay
 
+      - name: Check the receiver starts with the companion's settings, even with a stale plugin cache
+        run: python pc-companion/test_airplay_receiver.py package/airplay
+
       - name: Check the bundled receiver runs without MSYS2
         shell: pwsh
         run: |
