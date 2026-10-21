@@ -244,6 +244,41 @@ jobs:
           Get-Content $log -ErrorAction SilentlyContinue
           if (-not (Select-String -Path $log -Pattern "Up to date|Downloading" -Quiet -ErrorAction SilentlyContinue)) { throw "The updater task did not check for updates" }
 
+          # A teacher (standard account) can start the updater task: the companion's "Update now".
+          $password = ConvertTo-SecureString "Cb-$(Get-Random)-Aa1!" -AsPlainText -Force
+          New-LocalUser -Name cbteacher -Password $password -PasswordNeverExpires | Out-Null
+          $teacher = New-Object System.Management.Automation.PSCredential("cbteacher", $password)
+          $before = @(Get-Content $log).Count
+          $run = Start-Process schtasks.exe -ArgumentList '/Run /TN "Classroom Bridge Updater"' -Credential $teacher -WorkingDirectory $env:SystemRoot -WindowStyle Hidden -Wait -PassThru
+          if ($run.ExitCode -ne 0) { throw "A standard user could not start the updater task (exit $($run.ExitCode))" }
+          for ($i = 0; $i -lt 60 -and @(Get-Content $log).Count -le $before; $i++) { Start-Sleep 2 }
+          Get-Content $log | Select-Object -Skip $before
+          if (@(Get-Content $log).Count -le $before) { throw "The updater task started by a teacher did not run" }
+
+          # Only one companion: the installed copy closes a downloaded copy that is already running.
+          $zipCopy = "$env:RUNNER_TEMP\zip-copy"
+          Copy-Item package $zipCopy -Recurse
+          Start-Process "$zipCopy\ClassroomBridge.exe" -ArgumentList "--background"
+          Start-Sleep 15
+          $copies = @(Get-Process ClassroomBridge -ErrorAction SilentlyContinue | Where-Object Path -like "$zipCopy*")
+          "Downloaded copy processes before: $($copies.Count)"
+          if (-not $copies) { throw "The downloaded copy didn't start" }
+          Start-Process "$folder\ClassroomBridge.exe" -ArgumentList "--background"
+          Start-Sleep 15
+          $left = @(Get-Process ClassroomBridge -ErrorAction SilentlyContinue | Where-Object Path -like "$zipCopy*")
+          $installed = @(Get-Process ClassroomBridge -ErrorAction SilentlyContinue | Where-Object Path -like "$folder*")
+          "Downloaded copy processes after: $($left.Count); installed copy processes: $($installed.Count)"
+          if ($left) { throw "The installed companion did not close the downloaded copy" }
+          if (-not $installed) { throw "The installed companion didn't keep running" }
+          # Opening it again just shows the running one.
+          Start-Process "$folder\ClassroomBridge.exe"
+          Start-Sleep 10
+          $count = @(Get-Process ClassroomBridge -ErrorAction SilentlyContinue).Count
+          "Companion processes after opening it again: $count"
+          if ($count -gt 2) { throw "A second companion started" }
+          Get-Process ClassroomBridge, uxplay -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep 3
+
           # Automatic updates: a scheduled task installing a newer MSI upgrades in place and keeps the updater.
           $action = New-ScheduledTaskAction -Execute "$folder\ClassroomBridge.exe" -Argument "--update-service --from-file `"$env:RUNNER_TEMP\upgrade-test.msi`""
           Register-ScheduledTask -TaskName "Classroom Bridge upgrade test" -Action $action -User "SYSTEM" -RunLevel Highest -Force | Out-Null

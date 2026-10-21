@@ -50,7 +50,7 @@ def setting(name, default):
 
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, SETTINGS_KEY, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
             return str(winreg.QueryValueEx(key, name)[0])
-    except OSError:
+    except (OSError, ImportError):
         return default
 
 
@@ -60,7 +60,11 @@ def task_xml():
     executable = str(pathlib.Path(sys.executable).resolve()).replace("&", "&amp;").replace("<", "&lt;")
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Keeps Classroom Bridge up to date. Installs updates only while the companion is closed.</Description></RegistrationInfo>
+  <RegistrationInfo>
+    <Description>Keeps Classroom Bridge up to date. Installs updates only while the companion is closed.</Description>
+    <!-- Signed-in users may run it (the companion's "Update now"); it only ever installs the verified newest MSI. -->
+    <SecurityDescriptor>D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;AU)</SecurityDescriptor>
+  </RegistrationInfo>
   <Triggers>
     <BootTrigger><Delay>PT3M</Delay></BootTrigger>
     <CalendarTrigger>
@@ -184,7 +188,12 @@ def update(from_file=None):
     if setting("AutoUpdate", "1") == "0":
         log("Automatic updates are turned off (AutoUpdate = 0).")
         return 0
-    if companion_running():
+    # "Update now" in the companion starts this task and then closes the companion: give it a moment.
+    for _ in range(15):
+        if not companion_running():
+            break
+        time.sleep(3)
+    else:
         log("Classroom Bridge is open, so the update check waits for the next start-up.")
         return 0
     remove_old_downloads()
@@ -203,6 +212,41 @@ def update(from_file=None):
         log("Download verified against the published SHA-256 fingerprint. Installing.")
     start_msi_install(msi)
     return 0
+
+
+def request_update():
+    """From the companion (a teacher's account): starts the updater task. Returns None, or why it couldn't."""
+    result = schtasks("/Run", "/TN", TASK_NAME)
+    if result.returncode != 0:
+        return (result.stderr or result.stdout).strip() or f"schtasks exit {result.returncode}"
+    return None
+
+
+def reopen_after_update():
+    """Starts a hidden watcher (as the teacher) that reopens the companion once the update has installed,
+    or straight away if there was nothing to install."""
+    folder = install_dir()
+    script = f"""
+$exe = '{str(folder / "ClassroomBridge.exe").replace("'", "''")}'
+$log = '{str(folder / "update.log").replace("'", "''")}'
+function Get-Installed {{ (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object DisplayName -eq 'Classroom Bridge').DisplayVersion }}
+$old = Get-Installed
+$seen = if (Test-Path $log) {{ @(Get-Content $log).Count }} else {{ 0 }}
+$until = (Get-Date).AddMinutes(10)
+while ((Get-Date) -lt $until) {{
+  Start-Sleep 3
+  $now = Get-Installed
+  if ($now -and $now -ne $old -and (Test-Path $exe)) {{ Start-Sleep 5; break }}
+  $new = if (Test-Path $log) {{ @(Get-Content $log | Select-Object -Skip $seen) }} else {{ @() }}
+  if ($new -match 'Up to date|failed|turned off|is open') {{ break }}
+}}
+Start-Process $exe
+"""
+    subprocess.Popen(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script],
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+    )
 
 
 def main(arguments):

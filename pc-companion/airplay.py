@@ -14,6 +14,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 
 from agent import settings_dir
 from airplay_beacon import Beacon, local_ipv4, receiver_port
@@ -52,12 +53,16 @@ class AirPlayReceiver:
         self.beacon = Beacon()
         self.ble_file = settings_dir() / "airplay-beacon.bin"
         self.discovery = {}
+        self.wanted = False    # the companion wants the receiver running (restart it if it stops)
+        self.failures = 0
+        self.started_at = 0
 
     @property
     def supported(self):
         return sys.platform == "win32"
 
     def start(self):
+        self.wanted = True
         if not self.supported or self.running:
             return
         folder = bundled_receiver_dir()
@@ -100,6 +105,8 @@ class AirPlayReceiver:
         except OSError as error:
             self.notify(f"Could not start iPad apps (AirPlay): {error}")
             return
+        self.started_at = time.monotonic()
+        self.log_lines = []
         threading.Thread(target=self._read_output, args=(self.process,), daemon=True).start()
         self.notify(f"iPad apps starting — on the iPad: Control Centre → Screen Mirroring → {receiver_name()}.")
         threading.Thread(target=self._announce, args=(self.process, executable), daemon=True).start()
@@ -148,14 +155,35 @@ class AirPlayReceiver:
                 elif "lost connection with client" in line:
                     self.notify("The iPad's mirroring connection dropped (network problem?). Start Screen Mirroring again.")
         process.wait()
-        if process is self.process and process.returncode != 0:
-            self.notify("iPad apps (AirPlay) stopped unexpectedly. Choose Stop, then Start companion to retry.")
+        if process is not self.process:
+            return  # stopped on purpose
+        self.process = None
+        self.beacon.stop()
+        log_path = settings_dir() / "airplay-log.txt"
+        try:
+            log_path.write_text("\n".join(self.log_lines) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+        if time.monotonic() - self.started_at > 120:
+            self.failures = 0
+        self.failures += 1
+        reason = explain_failure(self.log_lines, process.returncode)
+        if self.wanted and self.failures <= 3:
+            self.notify(f"iPad apps (AirPlay) stopped: {reason} Restarting it…")
+            threading.Timer(3 * self.failures, self._restart).start()
+        else:
+            self.notify(f"iPad apps (AirPlay) keeps stopping: {reason} Details are in {log_path}.")
+
+    def _restart(self):
+        if self.wanted and not self.running:
+            self.start()
 
     @property
     def running(self):
         return self.process is not None and self.process.poll() is None
 
     def stop(self):
+        self.wanted = False
         self.beacon.stop()
         self.discovery = {}
         process, self.process = self.process, None
@@ -192,3 +220,16 @@ def firewall_status(program):
     if "Allow" in actions:
         return "allowed"
     return "missing"
+
+
+def explain_failure(lines, code):
+    """A short, teacher-readable reason the receiver exited, from the end of its log."""
+    text = "\n".join(lines[-40:]).lower()
+    if any(sign in text for sign in ("error listening", "error initialising socket", "address already in use", "10048")):
+        return ("another program is using the AirPlay ports (TCP 7000, 7001, 7100). Close other AirPlay receivers "
+                "or other copies of Classroom Bridge, or restart the PC.")
+    if "dnssd" in text or "dns-sd" in text:
+        return "network discovery (mDNS) couldn't start on this PC."
+    problem = next((line for line in reversed(lines) if any(word in line.lower() for word in ("error", "fail", "cannot", "could not"))), None)
+    detail = (problem or (lines[-1] if lines else f"exit code {code}")).strip()
+    return f"{detail[:160]}."

@@ -90,6 +90,20 @@ def set_enabled(enabled):
             path.unlink(missing_ok=True)
 
 
+def remove_user_entry():
+    """The MSI starts the app for everyone; a teacher's own entry (often for an old downloaded copy) would start a
+    second companion, so it is removed."""
+    if sys.platform != "win32" or not managed_by_it():
+        return
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.DeleteValue(key, VALUE_NAME)
+    except OSError:
+        pass
+
+
 def apply_first_run_default():
     """Turn auto-start on the first time the installed app runs; afterwards respect the teacher's choice."""
     marker = settings_dir() / "autostart-configured"

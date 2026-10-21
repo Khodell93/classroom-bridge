@@ -14,6 +14,7 @@ import pyautogui
 import qrcode
 from PIL import Image, ImageTk
 
+import single_instance
 import startup
 import updater
 from agent import get_or_create_pairing_code, run, settings_dir
@@ -88,6 +89,14 @@ class CompanionWindow:
         ttk.Label(titles, text="Classroom Bridge", font=("Segoe UI", 18, "bold")).pack(anchor="w")
         ttk.Label(titles, textvariable=self.status, wraplength=430, foreground="#35506f").pack(anchor="w")
 
+        # Shown when a newer version is published.
+        self.banner = tk.Frame(frame, background="#fff1c2", highlightbackground="#e0b84a", highlightthickness=1)
+        self.banner_text = tk.Label(self.banner, background="#fff1c2", foreground="#4a3500", justify="left", wraplength=360, font=("Segoe UI", 10))
+        self.banner_text.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+        self.update_button = ttk.Button(self.banner, text="Update now", command=self.update_now)
+        self.update_button.pack(side="right", padx=10, pady=8)
+        self.banner_anchor = header
+
         if sys.platform == "darwin":
             ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart. For iPad pinch-to-zoom on this Mac's display, enable Accessibility → Zoom → Use keyboard shortcuts to zoom.", wraplength=500).pack(anchor="w", pady=(14, 6))
             permissions = ttk.Frame(frame)
@@ -131,7 +140,6 @@ class CompanionWindow:
         self.start_button.pack(side="left")
         self.stop_button = ttk.Button(buttons, text="Stop", command=self.stop, state="disabled")
         self.stop_button.pack(side="left", padx=(8, 0))
-        self.update_button = ttk.Button(buttons, text="Update", command=self.start_update)
         ttk.Button(buttons, text="Quit", command=self.quit_app).pack(side="right")
         ttk.Button(buttons, text="Hide window", command=self.hide_window).pack(side="right", padx=(0, 8))
 
@@ -313,10 +321,48 @@ class CompanionWindow:
 
     def install_update_if_quiet(self):
         """Installs a waiting update automatically, but never while a teacher is using the companion."""
-        if not self.available_update or not self.auto_update.get() or self.updating or self.auto_update_failed or self.ipad_connected:
+        if not self.available_update or self.available_update.get("managed") or not self.auto_update.get() or self.updating or self.auto_update_failed or self.ipad_connected:
             return
         if time.monotonic() - self.launched < UPDATE_AFTER_LAUNCH_S or updater.idle_seconds() >= UPDATE_WHEN_IDLE_S:
             self.start_update(automatic=True)
+
+    def show_update_banner(self, update):
+        text = f"A newer version of Classroom Bridge is available ({update['title'].removeprefix('Classroom Bridge – ')})."
+        if update.get("managed"):
+            import update_service
+
+            if update_service.setting("AutoUpdate", "1") == "0":
+                text += " Your IT department installs updates on this PC."
+                self.update_button.pack_forget()
+            else:
+                text += " It installs by itself when this PC next starts, or choose Update now (about a minute)."
+        else:
+            text += " It installs by itself when no iPad is connected, or choose Update now."
+        self.banner_text.configure(text=text)
+        self.banner.pack(fill="x", pady=(12, 0), after=self.banner_anchor)
+        # The window has a fixed size; make room for the banner.
+        self.root.update_idletasks()
+        self.root.geometry(f"{self.root.winfo_width()}x{self.root.winfo_reqheight()}")
+
+    def update_now(self):
+        if self.available_update and self.available_update.get("managed"):
+            self.managed_update_now()
+        else:
+            self.start_update()
+
+    def managed_update_now(self):
+        """MSI install: the update runs as the system account through the installer's scheduled task."""
+        import update_service
+
+        self.update_button.configure(state="disabled")
+        problem = update_service.request_update()
+        if problem:
+            self.status.set(f"Couldn't start the update ({problem[:90]}). It will install when this PC next starts.")
+            self.update_button.configure(state="normal")
+            return
+        self.status.set("Updating — Classroom Bridge closes now and reopens in about a minute.")
+        update_service.reopen_after_update()
+        self.root.after(1500, self.quit_app)
 
     def check_for_update(self):
         try:
@@ -357,11 +403,8 @@ class CompanionWindow:
             if not value:
                 self.root.after(5000, self.install_update_if_quiet)
         elif kind == "available":
-            first = self.available_update is None
             self.available_update = value
-            self.update_button.configure(text=f"Update ({value['title']})")
-            if first:
-                self.update_button.pack(side="left", padx=(8, 0))
+            self.show_update_banner(value)
             self.install_update_if_quiet()
         elif kind == "progress":
             self.status.set(f"Downloading the update… {int(value * 100)}%")
@@ -396,6 +439,8 @@ class CompanionWindow:
                 self.handle_update_message(*self.update_messages.get_nowait())
         except queue.Empty:
             pass
+        if single_instance.show_requested():
+            self.show_window()
         try:
             while True:
                 action = self.tray_messages.get_nowait()
@@ -434,9 +479,15 @@ class CompanionWindow:
 
 
 def main():
+    keep_running, note = single_instance.claim()
+    if not keep_running:
+        return
+    startup.remove_user_entry()
     startup.apply_first_run_default()
     root = tk.Tk()
-    CompanionWindow(root, background="--background" in sys.argv)
+    window = CompanionWindow(root, background="--background" in sys.argv)
+    if note:
+        root.after(1500, lambda: window.status.set(note))
     root.mainloop()
 
 

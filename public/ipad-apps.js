@@ -4,7 +4,8 @@
 // beacon, the firewall, and whether the school network lets the iPad reach the PC directly.
 // Loaded before app.js; app.js routes "airplay-info" replies here.
 
-const ipadApps = { info: null, route: null, retry: 0 };
+const ipadApps = { info: null, route: null, retry: 0, unanswered: false };
+const IPAD_APPS_ANSWER_MS = 4000; // companions older than this panel never answer
 
 async function connectionRoute() {
   if (!peerConnection) return null;
@@ -41,13 +42,22 @@ function closeIpadApps() {
 
 async function refreshIpadApps() {
   ipadApps.route = await connectionRoute();
-  if (controlChannel?.readyState === "open") sendControl({ type: "airplay-info" });
-  else ipadApps.info = null;
+  if (controlChannel?.readyState === "open") {
+    if (!ipadApps.info) ipadApps.unanswered = false;
+    sendControl({ type: "airplay-info" });
+    window.clearTimeout(ipadApps.answerTimer);
+    ipadApps.answerTimer = window.setTimeout(() => {
+      if (ipadApps.info) return;
+      ipadApps.unanswered = true;
+      renderIpadApps();
+    }, IPAD_APPS_ANSWER_MS);
+  } else ipadApps.info = null;
   renderIpadApps();
 }
 
 function ipadAppsInfo(message) {
   ipadApps.info = message;
+  ipadApps.unanswered = false;
   renderIpadApps();
   // The PC checks Bluetooth and the firewall a few seconds after the receiver starts.
   if (message.checking && ipadApps.retry++ < 10 && !document.querySelector("#ipad-apps").hidden) {
@@ -83,7 +93,9 @@ function renderIpadApps() {
     checks.append(checkLine("warn", "Connect to the PC first to check that iPad apps will work."));
     return;
   }
-  if (!info) {
+  if (!info && ipadApps.unanswered) {
+    checks.append(checkLine("bad", "The Classroom Bridge companion on the PC is an older version that can't check iPad apps. Update it: in its window choose Update, or if school IT installed it, restart the PC (it updates itself a few minutes after starting)."));
+  } else if (!info) {
     checks.append(checkLine("wait", "Asking the PC…"));
   } else if (mac) {
     checks.append(checkLine("ok", "This Mac uses its own AirPlay Receiver (see the note above)."));

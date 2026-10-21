@@ -92,13 +92,17 @@ def newest_release(name):
 def find_update():
     """Returns the newest release download for this platform if it is newer than this app, else None."""
     remove_previous_version()
-    if managed_install():
-        return None  # The MSI's scheduled task (update_service.py) keeps these up to date.
-    name = asset_name()
-    if not name or not getattr(sys, "frozen", False):
+    if not getattr(sys, "frozen", False):
+        return None
+    # MSI installs are updated by the installer's scheduled task (update_service.py), not by replacing files here.
+    managed = managed_install()
+    name = "ClassroomBridge-Windows-x64.msi" if managed else asset_name()
+    if not name:
         return None
     best = newest_release(name)
-    return best if best and best["version"] > current_version() else None
+    if not best or best["version"] <= current_version():
+        return None
+    return {**best, "managed": managed}
 
 
 def download(update, progress, folder=None):
