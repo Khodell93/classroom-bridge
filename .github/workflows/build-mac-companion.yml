@@ -58,7 +58,8 @@ jobs:
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
           --collect-all AppKit --collect-all Foundation --collect-all Quartz
           --add-data version.txt:.
-          companion_ui.py
+          --hidden-import companion_ui --hidden-import update_service
+          main.py
 
       - name: Sign and notarise the app
         if: env.MACOS_CERTIFICATE != ''

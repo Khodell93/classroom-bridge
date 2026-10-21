@@ -52,7 +52,11 @@ The companion captures and controls the signed-in Windows desktop after the iPad
 
 ## School IT: Windows installer (MSI)
 
-Each Windows build also produces `ClassroomBridge-Windows-x64.msi` (WiX Toolset 5, `installer/ClassroomBridge.wxs`): a per-machine install into Program Files with a Start menu entry, Windows Firewall rules for the AirPlay receiver (local subnet only), and opening at sign-in for every user. Silent install: `msiexec /i ClassroomBridge-Windows-x64.msi /qn` (add `AUTOSTART=0` to skip opening at sign-in). New MSIs upgrade in place. MSI installs don't self-update (teachers can't write to Program Files); IT deploys the newer MSI. CI installs and uninstalls the MSI on a Windows runner to check files, firewall rules, the shortcut and the sign-in entry.
+Each Windows build also produces `ClassroomBridge-Windows-x64.msi` (WiX Toolset 5, `installer/ClassroomBridge.wxs`): a per-machine install into Program Files with a Start menu entry, Windows Firewall rules for the AirPlay receiver (local subnet only), and opening at sign-in for every user. Silent install: `msiexec /i ClassroomBridge-Windows-x64.msi /qn` (add `AUTOSTART=0` to skip opening at sign-in). New MSIs upgrade in place.
+
+MSI installs update themselves: the MSI registers a scheduled task, **Classroom Bridge Updater**, that runs as the system account three minutes after start-up and once a day. It checks the downloads page, verifies the newest MSI against its published SHA-256 fingerprint and installs it silently, keeping the `AUTOSTART` choice. It never updates while the companion is open, so a PC that stays on all day updates when it next starts. The log is `C:\Program Files\Classroom Bridge\update.log`. To manage updates yourself, install with `AUTOUPDATE=0` (or set `AutoUpdate` to `0` under `HKLM\Software\Classroom Bridge`). The task runs as the system account and uses the PC's own internet access; behind a proxy that needs a signed-in user, set the machine proxy (`netsh winhttp set proxy`) or deploy MSIs yourself. Whoever can publish to the downloads repository (the `DOWNLOADS_TOKEN` secret) controls what these PCs install, so keep that token private.
+
+CI installs the MSI on a Windows runner, checks files, firewall rules, the shortcut, the sign-in entry and the updater task, runs the task, upgrades through it to a newer test MSI, then uninstalls and checks nothing is left.
 
 ## Code signing
 
@@ -63,7 +67,7 @@ Unsigned apps trigger Windows SmartScreen and macOS Gatekeeper warnings. The bui
 
 ## Companion downloads and updates
 
-Each companion build on `main` or the development branch is published as a release of the public [classroom-bridge-downloads](https://github.com/Khodell93/classroom-bridge-downloads/releases/latest) repository (only the built apps; this source repository stays private). Installed companions check those releases when they open and show an **Update** button when a newer build exists; it downloads the update, checks it against the published SHA-256, replaces the app and reopens it. On a Mac the app must be in a folder the account can write to (normally Applications), not run directly from Downloads.
+Each companion build on `main` or the development branch is published as a release of the public [classroom-bridge-downloads](https://github.com/Khodell93/classroom-bridge-downloads/releases/latest) repository (only the built apps; this source repository stays private). Installed companions check those releases when they open and every six hours. With **Install updates automatically** ticked (the default), a newer build installs by itself — straight after opening, or later once no iPad is connected and the computer has been unused for 20 minutes — so a lesson is never interrupted. It downloads the update, checks it against the published SHA-256, replaces the app and reopens it (hidden again if it was running in the background). Untick the box to update only with the **Update** button. MSI installs update through their scheduled task instead (above). On a Mac the app must be in a folder the account can write to (normally Applications), not run directly from Downloads.
 
 Publishing needs a `DOWNLOADS_TOKEN` repository secret: a fine-grained personal access token limited to `classroom-bridge-downloads` with **Contents: Read and write**. Without it, builds still succeed and skip publishing.
 

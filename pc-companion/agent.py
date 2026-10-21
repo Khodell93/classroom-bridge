@@ -213,7 +213,9 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
 
 
-async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None):
+async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None, on_peer=None):
+    """on_peer(connected) is told when an iPad connects or disconnects (the window updates only while none is)."""
+    on_peer = on_peer or (lambda connected: None)
     stop_event = stop_event or threading.Event()
     width, height = pyautogui.size()
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"
@@ -237,6 +239,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                         if video_track:
                             video_track.capture.close()
                     peer = RTCPeerConnection()
+                    peer.on("connectionstatechange", lambda peer=peer: on_peer(peer.connectionState == "connected"))
                     video_track = DesktopVideo()
                     peer.addTrack(video_track)
                     prefer_h264(peer)
@@ -298,6 +301,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
             video_track.capture.close()
         if on_view:
             on_view({"type": "hide"})
+        on_peer(False)
         notify("Companion stopped.")
 
 

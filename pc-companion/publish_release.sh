@@ -15,7 +15,7 @@ notes="Companion apps for the Classroom Bridge iPad controller.
 - Windows: download ClassroomBridge-Windows-x64.zip, extract it, and open ClassroomBridge.exe (keep the airplay folder beside it).
 - Mac (M-series): ClassroomBridge-macOS-Apple-Silicon-arm64.zip. Older Intel Macs: ClassroomBridge-macOS-Intel-x64.zip.
 
-Installed companions offer this update automatically. The apps are unsigned; school IT may need to approve them."
+Installed companions install this update automatically. The apps are unsigned; school IT may need to approve them."
 for attempt in 1 2 3 4 5; do
   if gh release view "$tag" -R "$repo" >/dev/null 2>&1 || gh release create "$tag" -R "$repo" --title "$title" --notes "$notes" >/dev/null 2>&1; then
     if gh release upload "$tag" "$@" -R "$repo" --clobber; then

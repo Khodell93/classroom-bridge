@@ -3,8 +3,11 @@
   IT can deploy it silently, e.g. with Intune or Group Policy:
     msiexec /i ClassroomBridge-Windows-x64.msi /qn              (opens at sign-in for every user)
     msiexec /i ClassroomBridge-Windows-x64.msi /qn AUTOSTART=0  (installed, but teachers open it themselves)
+    msiexec /i ClassroomBridge-Windows-x64.msi /qn AUTOUPDATE=0 (no automatic updates; IT deploys new MSIs)
+  Automatic updates: a scheduled task (system account, at start-up and daily) installs the newest published MSI
+  while the companion is closed. See pc-companion/update_service.py.
   It also adds Windows Firewall rules (local network only) for the AirPlay receiver, so teachers never see a
-  firewall prompt. Updates are new MSIs; installing one replaces the previous version.
+  firewall prompt. Each update is a new MSI; installing one replaces the previous version.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
@@ -17,6 +20,18 @@
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Khodell93/classroom-bridge-downloads" />
     <Property Id="AUTOSTART" Value="1" Secure="yes" />
+    <Property Id="AUTOUPDATE" Value="1" Secure="yes" />
+
+    <!-- The updater task runs the installed app as the system account; Return="ignore" so a task problem never blocks installing. -->
+    <CustomAction Id="RegisterUpdater" FileRef="ClassroomBridgeExe" ExeCommand="--install-updater" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveUpdaterDisabled" FileRef="ClassroomBridgeExe" ExeCommand="--remove-updater" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="RemoveUpdater" FileRef="ClassroomBridgeExe" ExeCommand="--remove-updater" Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RegisterUpdater" After="InstallFiles" Condition="NOT REMOVE AND AUTOUPDATE = 1" />
+      <Custom Action="RemoveUpdaterDisabled" After="InstallFiles" Condition="NOT REMOVE AND AUTOUPDATE &lt;&gt; 1" />
+      <!-- Not during an upgrade: the new version registers the task again. Also deletes the update logs. -->
+      <Custom Action="RemoveUpdater" Before="RemoveFiles" Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Classroom Bridge">
@@ -34,6 +49,11 @@
       </Component>
       <Component Id="StartHereComponent" Directory="INSTALLFOLDER">
         <File Id="StartHere" Source="$(var.SourceDir)\Start-Here.txt" KeyPath="yes" />
+      </Component>
+      <!-- Remembered so automatic updates keep IT's choices, and IT can switch updates off later. -->
+      <Component Id="SettingsComponent" Directory="INSTALLFOLDER">
+        <RegistryValue Root="HKLM" Key="Software\Classroom Bridge" Name="AutoStart" Type="string" Value="[AUTOSTART]" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Classroom Bridge" Name="AutoUpdate" Type="string" Value="[AUTOUPDATE]" />
       </Component>
       <Component Id="AutostartComponent" Directory="INSTALLFOLDER" Condition="AUTOSTART = 1">
         <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="ClassroomBridge"

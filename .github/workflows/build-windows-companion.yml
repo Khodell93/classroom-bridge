@@ -55,7 +55,8 @@ jobs:
           --collect-submodules qrcode
           --collect-all aiortc --collect-all av --collect-all aioice
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi
-          companion_ui.py
+          --hidden-import companion_ui --hidden-import update_service
+          main.py
 
       - name: Set up MSYS2 for the AirPlay receiver
         uses: msys2/setup-msys2@v2
@@ -136,6 +137,8 @@ jobs:
              iPad at the QR code in the companion window (or type the code shown).
           3. Closing the window keeps it running in the system tray near the clock. Use Quit there
              to stop it completely.
+          4. Updates install automatically when no iPad is connected (untick the box in the window
+             to update only with the Update button).
 
           Apple Pencil annotations on the iPad are mirrored in a click-through overlay on the PC
           display. Use Clear ink in the iPad tools to remove them.
@@ -148,7 +151,8 @@ jobs:
 
           For school IT: ClassroomBridge-Windows-x64.msi installs for all users, adds the firewall
           rules and opens at sign-in. Silent install: msiexec /i ClassroomBridge-Windows-x64.msi /qn
-          (add AUTOSTART=0 to skip opening at sign-in).
+          (add AUTOSTART=0 to skip opening at sign-in). It keeps itself up to date with a scheduled task
+          while the companion is closed; add AUTOUPDATE=0 to deploy updates yourself instead.
 
           The app captures and controls the signed-in Windows desktop after a paired iPad connects.
           Use only on a school-approved PC. If Windows or school security blocks the app,
@@ -172,6 +176,14 @@ jobs:
             -d Version=$version -d SourceDir=package -d AssetsDir=pc-companion/assets `
             -o ClassroomBridge-Windows-x64.msi
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+          # A copy with a higher version, used only by the automatic-update check below (never published).
+          $nextVersion = "1.$($time.Year - 2000).$($slot + 1)"
+          wix build installer/ClassroomBridge.wxs installer/airplay-files.wxs -arch x64 -ext WixToolset.Firewall.wixext `
+            -d Version=$nextVersion -d SourceDir=package -d AssetsDir=pc-companion/assets `
+            -o "$env:RUNNER_TEMP\upgrade-test.msi"
+          if ($LASTEXITCODE -ne 0) { throw "wix build (upgrade test) failed" }
+          "MSI_VERSION=$version" >> $env:GITHUB_ENV
+          "NEXT_MSI_VERSION=$nextVersion" >> $env:GITHUB_ENV
 
       - name: Sign the installer
         if: env.AZURE_CLIENT_ID != ''
@@ -217,10 +229,45 @@ jobs:
           if ($rules.Count -lt 2) { throw "Firewall rules missing" }
           $rules | Format-Table DisplayName, Enabled, Direction, Action -AutoSize
           if (-not (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Classroom Bridge.lnk")) { throw "Start menu shortcut missing" }
+
+          # Automatic updates: the installer registers the updater task, and running it checks the downloads page.
+          if (-not (Get-ScheduledTask -TaskName "Classroom Bridge Updater" -ErrorAction SilentlyContinue)) { throw "Updater task missing" }
+          (Get-ScheduledTask -TaskName "Classroom Bridge Updater").Triggers | Format-Table -AutoSize
+          Start-ScheduledTask -TaskName "Classroom Bridge Updater"
+          $log = "$folder\update.log"
+          for ($i = 0; $i -lt 90 -and -not (Select-String -Path $log -Pattern "Up to date|Downloading|failed" -Quiet -ErrorAction SilentlyContinue); $i++) { Start-Sleep 2 }
+          Get-Content $log -ErrorAction SilentlyContinue
+          if (-not (Select-String -Path $log -Pattern "Up to date|Downloading" -Quiet -ErrorAction SilentlyContinue)) { throw "The updater task did not check for updates" }
+
+          # Automatic updates: a scheduled task installing a newer MSI upgrades in place and keeps the updater.
+          $action = New-ScheduledTaskAction -Execute "$folder\ClassroomBridge.exe" -Argument "--update-service --from-file `"$env:RUNNER_TEMP\upgrade-test.msi`""
+          Register-ScheduledTask -TaskName "Classroom Bridge upgrade test" -Action $action -User "SYSTEM" -RunLevel Highest -Force | Out-Null
+          Start-ScheduledTask -TaskName "Classroom Bridge upgrade test"
+          $installedVersion = ""
+          for ($i = 0; $i -lt 120; $i++) {
+            Start-Sleep 2
+            $entry = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" | Where-Object DisplayName -eq "Classroom Bridge"
+            $installedVersion = "$($entry.DisplayVersion)"
+            $installing = Get-CimInstance Win32_Process -Filter "Name = 'msiexec.exe'" | Where-Object CommandLine -like "*upgrade-test.msi*"
+            if ($installedVersion -eq $env:NEXT_MSI_VERSION -and -not $installing) { break }
+          }
+          Unregister-ScheduledTask -TaskName "Classroom Bridge upgrade test" -Confirm:$false
+          Start-Sleep 10
+          Get-Content $log -ErrorAction SilentlyContinue
+          if ($installedVersion -ne $env:NEXT_MSI_VERSION) {
+            Get-Content "$folder\update-install.log" -Tail 80 -ErrorAction SilentlyContinue
+            throw "Automatic update did not install version $env:NEXT_MSI_VERSION (installed: $installedVersion)"
+          }
+          "Upgraded by the update task: $env:MSI_VERSION -> $installedVersion"
+          if (-not (Test-Path "$folder\ClassroomBridge.exe")) { throw "App missing after automatic update" }
+          if (-not (Get-ScheduledTask -TaskName "Classroom Bridge Updater" -ErrorAction SilentlyContinue)) { throw "Updater task missing after automatic update" }
+          if ((Get-ItemProperty "HKLM:\Software\Classroom Bridge").AutoUpdate -ne "1") { throw "AutoUpdate setting not kept" }
+          $msi = "$env:RUNNER_TEMP\upgrade-test.msi"
           $remove = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
           if ($remove.ExitCode -ne 0) { throw "Uninstall failed ($($remove.ExitCode))" }
           if (Test-Path "$folder\ClassroomBridge.exe") { throw "Files left after uninstall" }
           if (Get-NetFirewallRule -DisplayName "Classroom Bridge AirPlay*" -ErrorAction SilentlyContinue) { throw "Firewall rules left after uninstall" }
+          if (Get-ScheduledTask -TaskName "Classroom Bridge Updater" -ErrorAction SilentlyContinue) { throw "Updater task left after uninstall" }
           "Installer checks passed"
 
       - name: Publish build artifact

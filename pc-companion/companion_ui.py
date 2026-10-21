@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 
 import startup
 import updater
-from agent import get_or_create_pairing_code, run
+from agent import get_or_create_pairing_code, run, settings_dir
 from airplay import AirPlayReceiver, get_or_create_pin, receiver_name
 from desktop_overlay import DesktopInkOverlay
 from presenter import CameraPresenter
@@ -25,6 +25,11 @@ from presenter import CameraPresenter
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
 APP_URL = "https://classroom-bridge.nathan-sant.workers.dev"
 ASSETS = pathlib.Path(getattr(sys, "_MEIPASS", pathlib.Path(__file__).parent)) / "assets"
+UPDATE_CHECK_MS = 6 * 60 * 60 * 1000
+# An automatic update restarts the app, so it waits until no iPad is connected and either the app has only just
+# opened or nobody has used the computer for a while.
+UPDATE_AFTER_LAUNCH_S = 180
+UPDATE_WHEN_IDLE_S = 20 * 60
 
 
 def pairing_qr(code, size=176):
@@ -57,6 +62,12 @@ class CompanionWindow:
         self.airplay_status = tk.StringVar(value="")
         self.update_messages = queue.Queue()
         self.available_update = None
+        self.updating = False
+        self.auto_update_failed = False
+        self.launched = time.monotonic()
+        self.background = background
+        self.ipad_connected = False
+        self.auto_update = tk.BooleanVar(value=not (settings_dir() / "auto-update-off").exists())
         self.pairing_code = get_or_create_pairing_code()
         self.code = tk.StringVar(value=" ".join(self.pairing_code))
         self.status = tk.StringVar(value="Starting…")
@@ -110,6 +121,10 @@ class CompanionWindow:
                 ttk.Label(frame, text="Opens automatically when you sign in (set up by your IT department).").pack(anchor="w")
             else:
                 ttk.Checkbutton(frame, text="Open automatically when I sign in, ready in the background", variable=self.autostart, command=self.toggle_autostart).pack(anchor="w")
+        if updater.managed_install():
+            ttk.Label(frame, text="Updates install automatically when this PC starts (set up by the installer).").pack(anchor="w")
+        elif getattr(sys, "frozen", False):
+            ttk.Checkbutton(frame, text="Install updates automatically (when no iPad is connected)", variable=self.auto_update, command=self.toggle_auto_update).pack(anchor="w")
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=(14, 0))
         self.start_button = ttk.Button(buttons, text="Start", command=self.start)
@@ -125,7 +140,7 @@ class CompanionWindow:
             self.root.createcommand("::tk::mac::ReopenApplication", self.show_window)
             self.root.createcommand("::tk::mac::Quit", self.quit_app)
         self.start_tray()
-        threading.Thread(target=self.check_for_update, daemon=True).start()
+        self.schedule_update_check()
         self.root.after(100, self.poll_messages)
         self.root.after(300, self.start)
         if background:
@@ -220,7 +235,8 @@ class CompanionWindow:
             started = time.monotonic()
             problem = "Connection closed"
             try:
-                asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.presenter.handle))
+                asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.presenter.handle,
+                                lambda connected: self.update_messages.put(("ipad", connected))))
             except Exception as error:
                 problem = f"No connection ({str(error)[:70] or type(error).__name__})"
             if stop_event.is_set():
@@ -280,6 +296,28 @@ class CompanionWindow:
 
     # Updates ---------------------------------------------------------------------------------------------------------
 
+    def schedule_update_check(self):
+        threading.Thread(target=self.check_for_update, daemon=True).start()
+        self.root.after(UPDATE_CHECK_MS, self.schedule_update_check)
+
+    def toggle_auto_update(self):
+        flag = settings_dir() / "auto-update-off"
+        try:
+            if self.auto_update.get():
+                flag.unlink(missing_ok=True)
+                self.root.after(1000, self.install_update_if_quiet)
+            else:
+                flag.write_text("Automatic updates are off. Delete this file (or tick the box in the app) to turn them on.\n", encoding="utf-8")
+        except OSError as error:
+            self.status.set(f"Couldn't change the update setting: {error}")
+
+    def install_update_if_quiet(self):
+        """Installs a waiting update automatically, but never while a teacher is using the companion."""
+        if not self.available_update or not self.auto_update.get() or self.updating or self.auto_update_failed or self.ipad_connected:
+            return
+        if time.monotonic() - self.launched < UPDATE_AFTER_LAUNCH_S or updater.idle_seconds() >= UPDATE_WHEN_IDLE_S:
+            self.start_update(automatic=True)
+
     def check_for_update(self):
         try:
             update = updater.find_update()
@@ -288,10 +326,13 @@ class CompanionWindow:
         if update:
             self.update_messages.put(("available", update))
 
-    def start_update(self):
+    def start_update(self, automatic=False):
         update = self.available_update
-        if not update:
+        if not update or self.updating:
             return
+        self.updating = True
+        self.updating_automatically = automatic
+        background = automatic and (self.background or not self.root.winfo_viewable())
         self.stop_event.set()
         self.airplay.stop()
         self.close_overlay()
@@ -303,7 +344,7 @@ class CompanionWindow:
         def work():
             try:
                 folder, archive = updater.download(update, lambda share: self.update_messages.put(("progress", share)))
-                updater.install_and_restart(folder, archive)
+                updater.install_and_restart(folder, archive, background)
                 self.update_messages.put(("restart", None))
             except Exception as error:
                 self.update_messages.put(("failed", str(error)))
@@ -311,19 +352,31 @@ class CompanionWindow:
         threading.Thread(target=work, daemon=True).start()
 
     def handle_update_message(self, kind, value):
-        if kind == "available":
+        if kind == "ipad":
+            self.ipad_connected = value
+            if not value:
+                self.root.after(5000, self.install_update_if_quiet)
+        elif kind == "available":
+            first = self.available_update is None
             self.available_update = value
             self.update_button.configure(text=f"Update ({value['title']})")
-            self.update_button.pack(side="left", padx=(8, 0))
+            if first:
+                self.update_button.pack(side="left", padx=(8, 0))
+            self.install_update_if_quiet()
         elif kind == "progress":
             self.status.set(f"Downloading the update… {int(value * 100)}%")
         elif kind == "restart":
             self.status.set("Installing the update — Classroom Bridge will reopen in a moment.")
             self.root.after(300, self.quit_for_update)
         elif kind == "failed":
+            self.updating = False
             self.status.set(f"Update failed: {value}")
             self.start_button.configure(state="normal")
             self.update_button.configure(state="normal")
+            if self.updating_automatically:
+                # Don't keep retrying in the background; the Update button still works, and the companion carries on.
+                self.auto_update_failed = True
+                self.root.after(3000, self.start)
 
     def quit_for_update(self):
         self.quit_app()
@@ -360,6 +413,9 @@ class CompanionWindow:
             self.stop_button.configure(state="disabled")
             self.close_overlay()
             self.presenter.hide()
+        if self.available_update and time.monotonic() - getattr(self, "last_quiet_check", 0) > 60:
+            self.last_quiet_check = time.monotonic()
+            self.install_update_if_quiet()
         self.root.after(100, self.poll_messages)
 
     def quit_app(self):

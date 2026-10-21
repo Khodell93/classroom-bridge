@@ -63,14 +63,8 @@ def managed_install():
     return any(folder and executable.startswith(folder.lower()) for folder in program_files)
 
 
-def find_update():
-    """Returns the newest release download for this platform if it is newer than this app, else None."""
-    remove_previous_version()
-    if managed_install():
-        return None
-    name = asset_name()
-    if not name or not getattr(sys, "frozen", False):
-        return None
+def newest_release(name):
+    """The newest build-<n> release that has the file `name` uploaded, as a dict, or None."""
     with _open(RELEASES_URL) as response:
         releases = json.load(response)
     best = None
@@ -87,16 +81,29 @@ def find_update():
             best = {
                 "version": version,
                 "title": release.get("name") or tag,
+                "name": name,
                 "url": asset["browser_download_url"],
                 "size": int(asset.get("size", 0)),
                 "digest": str(asset.get("digest") or ""),
             }
+    return best
+
+
+def find_update():
+    """Returns the newest release download for this platform if it is newer than this app, else None."""
+    remove_previous_version()
+    if managed_install():
+        return None  # The MSI's scheduled task (update_service.py) keeps these up to date.
+    name = asset_name()
+    if not name or not getattr(sys, "frozen", False):
+        return None
+    best = newest_release(name)
     return best if best and best["version"] > current_version() else None
 
 
-def download(update, progress):
-    folder = pathlib.Path(tempfile.mkdtemp(prefix="classroom-bridge-update-"))
-    archive = folder / asset_name()
+def download(update, progress, folder=None):
+    folder = pathlib.Path(folder or tempfile.mkdtemp(prefix="classroom-bridge-update-"))
+    archive = folder / update["name"]
     digest = hashlib.sha256()
     received = 0
     with _open(update["url"], accept="application/octet-stream") as response, archive.open("wb") as output:
@@ -114,17 +121,39 @@ def download(update, progress):
     return folder, archive
 
 
-def install_and_restart(folder, archive):
-    """Unpacks the update and starts a helper that replaces the app once this process has exited."""
+def idle_seconds():
+    """Seconds since anyone last used this computer's mouse or keyboard (0 if unknown)."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class LastInput(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+            info = LastInput(ctypes.sizeof(LastInput), 0)
+            if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+                return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000
+        elif sys.platform == "darwin":
+            import Quartz
+
+            return Quartz.CGEventSourceSecondsSinceLastEventType(Quartz.kCGEventSourceStateCombinedSessionState, getattr(Quartz, "kCGAnyInputEventType", 0xFFFFFFFF))
+    except Exception:
+        pass
+    return 0
+
+
+def install_and_restart(folder, archive, background=False):
+    """Unpacks the update and starts a helper that replaces the app once this process has exited.
+    With background=True the new version reopens hidden, as the old one was."""
     if sys.platform == "darwin":
-        _install_macos(folder, archive)
+        _install_macos(folder, archive, background)
     elif sys.platform == "win32":
-        _install_windows(folder, archive)
+        _install_windows(folder, archive, background)
     else:
         raise OSError("Updates are only supported on Windows and macOS.")
 
 
-def _install_macos(folder, archive):
+def _install_macos(folder, archive, background=False):
     app = pathlib.Path(sys.executable).resolve().parents[2]
     if app.suffix != ".app":
         raise OSError("Could not find the installed ClassroomBridge.app.")
@@ -142,14 +171,14 @@ def _install_macos(folder, archive):
     script.write_text(f"""#!/bin/sh
 while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.5; done
 rm -rf "{app}.old" && mv "{app}" "{app}.old" && mv "{new_app}" "{app}" && rm -rf "{app}.old" || {{ [ -d "{app}" ] || mv "{app}.old" "{app}"; }}
-open "{app}"
+open "{app}"{" --args --background" if background else ""}
 rm -rf "{folder}"
 """, encoding="utf-8")
     script.chmod(0o700)
     subprocess.Popen(["/bin/sh", str(script)], start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def _install_windows(folder, archive):
+def _install_windows(folder, archive, background=False):
     install_dir = pathlib.Path(sys.executable).resolve().parent
     if not os.access(install_dir, os.W_OK):
         raise OSError(f"This Windows account cannot write to {install_dir}. Ask school IT, or download it from {DOWNLOAD_PAGE}.")
@@ -174,7 +203,7 @@ if %tries% geq 10 goto launch
 ping -n 3 127.0.0.1 >nul
 goto replace
 :launch
-start "" "{exe}"
+start "" "{exe}"{" --background" if background else ""}
 """, encoding="utf-8")
     subprocess.Popen(
         ["cmd.exe", "/c", str(script)],
