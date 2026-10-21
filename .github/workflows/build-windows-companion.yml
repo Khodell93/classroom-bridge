@@ -43,6 +43,10 @@ jobs:
       - name: Check the update helper
         run: python pc-companion/test_windows_update.py
 
+      - name: Check the Bluetooth beacon fails gracefully without an adapter
+        working-directory: pc-companion
+        run: python -c "import airplay_beacon as b; print(b.advert_bytes('10.0.0.5', 7000).hex()); print('Beacon:', b.Beacon().start(b.local_ipv4(), 7000) or 'advertising')"
+
       - name: Build the teacher-facing application
         working-directory: pc-companion
         run: >-
@@ -52,6 +56,7 @@ jobs:
           --add-data assets:assets
           --add-data version.txt:.
           --hidden-import pystray._win32
+          --collect-all winrt --hidden-import airplay_beacon
           --collect-submodules qrcode
           --collect-all aiortc --collect-all av --collect-all aioice
           --collect-all pylibsrtp --collect-all websockets --collect-data certifi

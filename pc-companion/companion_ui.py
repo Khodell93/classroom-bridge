@@ -236,7 +236,7 @@ class CompanionWindow:
             problem = "Connection closed"
             try:
                 asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.presenter.handle,
-                                lambda connected: self.update_messages.put(("ipad", connected))))
+                                lambda connected: self.update_messages.put(("ipad", connected)), self.airplay.info))
             except Exception as error:
                 problem = f"No connection ({str(error)[:70] or type(error).__name__})"
             if stop_event.is_set():

@@ -119,3 +119,17 @@
 .draw-input-button[data-input="finger"]{background:#2f4a6d;box-shadow:inset 0 0 0 1px #9cc8ff88}
 .draw-input-button[data-input="pencil-only"]{background:#5a2f3f;box-shadow:inset 0 0 0 1px #ff9cb688}
 .draw-input-button[data-input="pencil-only"]::after{content:"only";position:absolute;right:2px;bottom:2px;padding:0 3px;border-radius:5px;background:#ff4b6e;color:#fff;font-size:9px;font-weight:700;line-height:13px;pointer-events:none}
+/* iPad apps (AirPlay to the PC) */
+.ipad-apps-card{width:min(520px,100%)}
+.ipad-apps-steps{margin:0 0 14px;padding-left:22px;color:#dbe7f4;font-size:14px;line-height:1.5}
+.ipad-apps-steps li{margin-bottom:6px}
+.ipad-apps-steps strong{color:#fff}
+#ipad-apps-pin{letter-spacing:.15em}
+.ipad-apps-note{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}
+.ipad-apps-checks{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:8px}
+.check{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #ffffff14;border-radius:12px;background:#ffffff06;font-size:12px;line-height:1.45;color:#dbe7f4}
+.check b{flex:0 0 20px;height:20px;display:grid;place-items:center;border-radius:50%;font-size:11px;background:#33475f}
+.check.ok b{background:#1f5a43;color:var(--green)}
+.check.bad b{background:#5a1f2e;color:#ffb6c5}
+.check.warn b{background:#5a4a1f;color:#ffd98a}
+.ipad-apps-card .connect-submit+.connect-submit{margin-top:8px}

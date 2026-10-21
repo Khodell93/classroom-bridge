@@ -2,8 +2,11 @@
 
 The teacher uses Control Centre → Screen Mirroring on the iPad, exactly as with an Apple TV.
 Video is decoded locally and shown full-screen; nothing passes through Classroom Bridge's servers.
+iPads find the receiver by mDNS on the same network segment, and by a Bluetooth LE beacon (airplay_beacon.py)
+when the iPads' Wi-Fi is on a different segment from the PC, as is common in schools.
 """
 
+import json
 import os
 import pathlib
 import secrets
@@ -13,6 +16,7 @@ import sys
 import threading
 
 from agent import settings_dir
+from airplay_beacon import Beacon, local_ipv4, receiver_port
 
 
 def bundled_receiver_dir():
@@ -45,6 +49,9 @@ class AirPlayReceiver:
         self.notify = notify
         self.process = None
         self.log_lines = []
+        self.beacon = Beacon()
+        self.ble_file = settings_dir() / "airplay-beacon.bin"
+        self.discovery = {}
 
     @property
     def supported(self):
@@ -74,7 +81,12 @@ class AirPlayReceiver:
             "-pin", get_or_create_pin(), "-reg", str(data / "airplay-trusted-ipads.txt"),
             "-p",
             "-fs", "-vs", "d3d11videosink",
+            "-ble", str(self.ble_file),
         ]
+        try:
+            self.ble_file.unlink(missing_ok=True)  # a stale file would advertise the previous run's port
+        except OSError:
+            pass
         try:
             self.process = subprocess.Popen(
                 arguments,
@@ -89,13 +101,52 @@ class AirPlayReceiver:
             self.notify(f"Could not start iPad apps (AirPlay): {error}")
             return
         threading.Thread(target=self._read_output, args=(self.process,), daemon=True).start()
-        self.notify(f"iPad apps ready — on the iPad open Control Centre → Screen Mirroring → {receiver_name()}.")
+        self.notify(f"iPad apps starting — on the iPad: Control Centre → Screen Mirroring → {receiver_name()}.")
+        threading.Thread(target=self._announce, args=(self.process, executable), daemon=True).start()
+
+    def _announce(self, process, executable):
+        """Starts the Bluetooth beacon once the receiver is listening, then reports how iPads can find this PC."""
+        port = receiver_port(self.ble_file)
+        if process is not self.process or not self.running:
+            return
+        address = local_ipv4()
+        problem = self.beacon.start(address, port) if port else "The receiver didn't report its port."
+        firewall = firewall_status(executable)
+        lines = [f"Ready: on the iPad, Control Centre → Screen Mirroring → {receiver_name()}."]
+        if problem:
+            lines.append(f"Found by iPads on this PC's network only. {problem} If the PC isn't listed on the iPad, "
+                         "turn on Bluetooth (or plug in a USB Bluetooth adapter), or ask IT to let this PC's AirPlay "
+                         "through like the Apple TVs.")
+        else:
+            lines.append(f"Also found by Bluetooth: iPads near this PC see it even on a different Wi-Fi ({address}).")
+        if firewall == "blocked":
+            lines.append("Windows Firewall is blocking the receiver. Ask IT to install the Classroom Bridge MSI, "
+                         "which adds the firewall rule, or to allow uxplay.exe.")
+        elif firewall == "missing":
+            lines.append("Windows Firewall has no rule for the receiver yet: allow it if Windows asks, or ask IT "
+                         "to install the Classroom Bridge MSI.")
+        self.discovery = {"address": address, "bluetooth": not problem, "bluetoothProblem": problem, "firewall": firewall}
+        self.notify(" ".join(lines))
+
+    def info(self):
+        """What the iPad's "iPad apps" panel shows. The PIN is only sent to the paired iPad."""
+        if not self.supported:
+            return {"supported": False, "name": socket.gethostname()}
+        return {"supported": True, "running": self.running, "name": receiver_name(), "pin": get_or_create_pin(),
+                "checking": self.running and not self.discovery, **self.discovery}
 
     def _read_output(self, process):
         for raw in process.stdout:
             line = raw.decode("utf-8", "replace").rstrip()
             if line:
                 self.log_lines = (self.log_lines + [line])[-200:]
+                if "connection request from" in line:
+                    device = line.split("connection request from", 1)[1].split(" with deviceID")[0].strip()
+                    self.notify(f"{device} is connecting. If the iPad asks for a PIN, enter {get_or_create_pin()}.")
+                elif "registered new client" in line:
+                    self.notify("iPad paired: it won't need the PIN again on this PC.")
+                elif "lost connection with client" in line:
+                    self.notify("The iPad's mirroring connection dropped (network problem?). Start Screen Mirroring again.")
         process.wait()
         if process is self.process and process.returncode != 0:
             self.notify("iPad apps (AirPlay) stopped unexpectedly. Choose Stop, then Start companion to retry.")
@@ -105,6 +156,8 @@ class AirPlayReceiver:
         return self.process is not None and self.process.poll() is None
 
     def stop(self):
+        self.beacon.stop()
+        self.discovery = {}
         process, self.process = self.process, None
         if process is None or process.poll() is not None:
             return
@@ -113,3 +166,29 @@ class AirPlayReceiver:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+def firewall_status(program):
+    """'allowed', 'blocked', 'missing' (no rule: Windows will ask) or 'unknown' for inbound connections to program."""
+    if sys.platform != "win32":
+        return "unknown"
+    script = (
+        f"$p = '{str(program).replace(chr(39), chr(39) * 2)}'; "
+        "$rules = @(Get-NetFirewallApplicationFilter -Program $p -ErrorAction SilentlyContinue | Get-NetFirewallRule "
+        "-ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' }); "
+        "ConvertTo-Json -Compress @($rules | ForEach-Object { [string]$_.Action })"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        actions = json.loads(result.stdout.strip() or "[]")
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return "unknown"
+    actions = [actions] if isinstance(actions, str) else actions
+    if "Block" in actions:
+        return "blocked"
+    if "Allow" in actions:
+        return "allowed"
+    return "missing"

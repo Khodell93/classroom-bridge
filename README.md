@@ -33,7 +33,15 @@ To teach from any iPad app with its own Apple Pencil tools, the teacher mirrors 
 
 - **Windows:** the companion bundles [UxPlay](https://github.com/FDH2/UxPlay), a free GPL-licensed AirPlay receiver (licences are in `airplay/licenses`). It starts and stops with the companion and shows the mirrored iPad full-screen. It uses UxPlay's built-in discovery, so Apple Bonjour is not needed. Windows asks once to allow it through the firewall (fixed ports TCP 7000, 7001, 7100 and UDP 6000, 6001, 7011, plus mDNS UDP 5353); school IT may need to approve this.
 - **Mac:** macOS has a built-in AirPlay Receiver (System Settings → General → AirDrop & Handoff), so nothing extra is bundled.
-- The iPad and PC must be on a network that allows AirPlay discovery between them — if an Apple TV works on that network, this should too.
+- The **iPad apps** button in the web app shows these steps with the PC's exact name and PIN, and checks the receiver, its Bluetooth beacon, the firewall, and whether the iPad and PC reach each other directly.
+
+### When the PC isn't listed under Screen Mirroring
+
+iPads find AirPlay receivers with mDNS (Bonjour), which only reaches devices on the same network segment. School networks often put iPads and PCs on different Wi-Fi networks or VLANs, or stop Wi-Fi devices from seeing each other, and let only registered Apple TVs through (a Bonjour gateway such as Cisco or Aruba AirGroup). So an Apple TV appearing does not mean the PC can.
+
+- **Bluetooth beacon (no IT change needed):** on Windows the companion also advertises the receiver over Bluetooth LE, the way UxPlay's `uxplay-beacon.py` does. An iPad near the PC then lists it and connects over the normal network. The PC needs Bluetooth 4.0 or later that can advertise; most laptops have it, and a USB Bluetooth adapter works on a desktop. The companion window says whether the beacon is on.
+- **The iPad must still be able to reach the PC's address** (TCP 7000, 7001, 7100 and UDP 6000, 6001, 7011). The **iPad apps** panel's last check shows this: if the iPad and PC "only reach each other through the internet", the network is keeping them apart and IT needs to allow it.
+- **For IT:** add the classroom PCs to the AirPlay/Bonjour gateway the way the Apple TVs are, or allow traffic from the iPad network to the PCs on those ports. The MSI's firewall rule for the receiver accepts connections from any address (not only the PC's own subnet) for this reason; connections still need the receiver's PIN.
 
 ## Teacher setup
 

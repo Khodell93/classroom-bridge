@@ -563,6 +563,10 @@ function clipboardMessage(event) {
     document.querySelector("#open-explorer strong").textContent = hostPlatform === "macos" ? "Open Finder" : "File Explorer";
     return;
   }
+  if (message.type === "airplay-info") {
+    ipadAppsInfo(message);
+    return;
+  }
   if (message.type === "screenshot-error") {
     screenshotFailed(message);
     return;
@@ -1076,6 +1080,7 @@ if (savedCode) {
 if (readStoredValue(FIRST_OPEN_KEY)) setupModal.hidden = true;
 else writeStoredValue(FIRST_OPEN_KEY, "true");
 initDrawInput();
+initIpadApps();
 initVisualiser();
 initPcTools();
 updateModeControls();

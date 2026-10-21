@@ -61,7 +61,9 @@
       </Component>
       <Component Id="AirPlayReceiverComponent" Directory="AIRPLAYFOLDER">
         <File Id="UxPlayExe" Source="$(var.SourceDir)\airplay\uxplay.exe" KeyPath="yes">
-          <fw:FirewallException Id="AirPlayReceiverFirewall" Name="Classroom Bridge AirPlay receiver" Scope="localSubnet" />
+          <!-- Any address, not only this subnet: school iPads are often on a different Wi-Fi segment and find the PC
+               by Bluetooth. Connections still need the receiver's PIN. -->
+          <fw:FirewallException Id="AirPlayReceiverFirewall" Name="Classroom Bridge AirPlay receiver" Scope="any" />
         </File>
         <fw:FirewallException Id="AirPlayDiscoveryFirewall" Name="Classroom Bridge AirPlay discovery" Port="5353" Protocol="udp" Scope="localSubnet" />
       </Component>

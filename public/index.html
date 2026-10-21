@@ -217,6 +217,7 @@
         <nav class="mode-switch" aria-label="Screen source">
           <button class="mode-button selected" data-mode="pc"><span>▣</span> PC</button>
           <button class="mode-button" data-mode="camera"><span>◉</span> Camera</button>
+          <button id="ipad-apps-open" class="mode-button"><span>▭</span> iPad apps</button>
           <button id="tools-open" class="mode-button tools-launch"><span>☷</span> Tools</button>
         </nav>
 
@@ -308,6 +309,29 @@
         <div id="vis-toast" class="vis-toast" role="status" hidden></div>
       </section>
 
+      <div id="ipad-apps" class="modal-overlay" hidden>
+        <section class="setup-card ipad-apps-card" role="dialog" aria-modal="true" aria-labelledby="ipad-apps-title">
+          <button id="ipad-apps-close" class="icon-button modal-close" aria-label="Close">×</button>
+          <div class="setup-symbol">▭</div>
+          <p class="eyebrow">iPad apps</p>
+          <h1 id="ipad-apps-title">Show any iPad app on the projector</h1>
+          <p class="setup-copy">OneDrive, PowerPoint, Word, PDFs, the Photos app: use them on the iPad as normal and the PC shows them full-screen, like an Apple TV.</p>
+          <ol class="ipad-apps-steps">
+            <li>Swipe down from the top-right corner of the iPad to open <strong>Control Centre</strong>.</li>
+            <li>Tap <strong>Screen Mirroring</strong> (two overlapping rectangles).</li>
+            <li>Choose <strong id="ipad-apps-name">Classroom Bridge</strong>.</li>
+            <li id="ipad-apps-pin-step" hidden>The first time, enter the PIN <strong id="ipad-apps-pin"></strong>. This iPad is then remembered.</li>
+            <li>Open the app you want. Come back to Classroom Bridge any time to control the PC or use the camera.</li>
+          </ol>
+          <p id="ipad-apps-mac" class="ipad-apps-note" hidden>On a Mac, first turn on System Settings → General → AirDrop &amp; Handoff → AirPlay Receiver (allow "Current user" or "Anyone on the same network"). Then choose the Mac's name in step 3.</p>
+          <p class="ipad-apps-note">To stop, open Control Centre → Screen Mirroring → Stop Mirroring.</p>
+          <p class="eyebrow">Checks</p>
+          <ul id="ipad-apps-checks" class="ipad-apps-checks"></ul>
+          <button id="ipad-apps-recheck" class="secondary connect-submit" type="button">Check again</button>
+          <button id="ipad-apps-done" class="primary connect-submit" type="button">Done</button>
+        </section>
+      </div>
+
       <div id="setup-modal" class="modal-overlay">
         <section class="setup-card" role="dialog" aria-modal="true" aria-labelledby="setup-title">
           <button id="setup-close" class="icon-button modal-close" aria-label="Close connection settings">×</button>
@@ -338,6 +362,7 @@
     <script src="/visualiser.js" defer></script>
     <script src="/vis-extras.js" defer></script>
     <script src="/pc-tools.js" defer></script>
+    <script src="/ipad-apps.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

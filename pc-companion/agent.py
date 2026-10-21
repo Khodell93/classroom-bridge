@@ -213,7 +213,7 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
 
 
-async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None, on_peer=None):
+async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None, on_peer=None, airplay_info=None):
     """on_peer(connected) is told when an iPad connects or disconnects (the window updates only while none is)."""
     on_peer = on_peer or (lambda connected: None)
     stop_event = stop_event or threading.Event()
@@ -265,7 +265,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                         "screenWidth": width,
                         "screenHeight": height,
                     })))
-                    channel.on("message", lambda raw, scene=scene: handle_message(raw, width, height, channel, on_ink, scene))
+                    channel.on("message", lambda raw, scene=scene: handle_message(raw, width, height, channel, on_ink, scene, airplay_info))
                     ink_channel.on("message", lambda raw, scene=scene: handle_message(raw, width, height, on_ink=on_ink, scene=scene))
                     pending_candidates.clear()
                     offer = await peer.createOffer()
@@ -322,7 +322,7 @@ def send_blob(channel, kind, data, meta):
     return True
 
 
-def handle_message(raw, width, height, channel=None, on_ink=None, scene=None):
+def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, airplay_info=None):
     try:
         command = json.loads(raw)
         if command.get("type") == "screenshot":
@@ -331,6 +331,11 @@ def handle_message(raw, width, height, channel=None, on_ink=None, scene=None):
         elif command.get("type") in ("ink-live", "shape-live", "laser"):
             if scene:
                 {"ink-live": scene.ink_live, "shape-live": scene.shape_live, "laser": scene.laser_points}[command["type"]](command)
+        elif command.get("type") == "airplay-info":
+            # The iPad's "iPad apps" panel: receiver name, PIN and how iPads can find this PC.
+            info = airplay_info() if airplay_info else {"supported": False}
+            if channel:
+                send_json(channel, {"type": "airplay-info", "os": "macos" if sys.platform == "darwin" else "windows", **info})
         elif command.get("type") == "clipboard-read":
             if channel and channel.readyState == "open":
                 try:
