@@ -167,7 +167,8 @@ jobs:
           $slot = [int][Math]::Floor(($time - [datetime]::new($time.Year, 1, 1)).TotalMinutes / 10)
           $version = "1.$($time.Year - 2000).$slot"
           "MSI version $version"
-          wix build installer/ClassroomBridge.wxs -arch x64 -ext WixToolset.Firewall.wixext `
+          python installer/harvest_airplay.py package/airplay installer/airplay-files.wxs
+          wix build installer/ClassroomBridge.wxs installer/airplay-files.wxs -arch x64 -ext WixToolset.Firewall.wixext `
             -d Version=$version -d SourceDir=package -d AssetsDir=pc-companion/assets `
             -o ClassroomBridge-Windows-x64.msi
           if ($LASTEXITCODE -ne 0) { throw "wix build failed" }

@@ -9,3 +9,4 @@ pc-companion/dist/
 *.spec
 .DS_Store
 pc-companion/version.txt
+installer/airplay-files.wxs
