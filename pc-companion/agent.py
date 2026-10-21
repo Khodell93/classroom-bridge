@@ -135,6 +135,31 @@ def get_or_create_pairing_code():
     return code
 
 
+def zoom_app(steps):
+    """Zooms the app under the pointer with its own zoom, like a touchpad pinch (iPad pinch in PC mode)."""
+    steps = max(-5, min(5, steps))
+    if not steps:
+        return
+    if sys.platform == "win32":
+        # Ctrl + wheel: Chrome, Edge, Office, File Explorer and most apps zoom by one level per notch (120).
+        user32 = ctypes.windll.user32
+        user32.keybd_event(0x11, 0, 0, 0)  # Ctrl down
+        try:
+            for _ in range(abs(steps)):
+                user32.mouse_event(0x0800, 0, 0, ctypes.c_uint32((120 if steps > 0 else -120) & 0xFFFFFFFF).value, 0)
+        finally:
+            user32.keybd_event(0x11, 0, 0x0002, 0)  # Ctrl up
+    elif sys.platform == "darwin":
+        for _ in range(abs(steps)):
+            pyautogui.hotkey("command", "=" if steps > 0 else "-")
+    else:
+        pyautogui.keyDown("ctrl")
+        try:
+            pyautogui.scroll(steps)
+        finally:
+            pyautogui.keyUp("ctrl")
+
+
 def set_screen_zoom(target):
     global _screen_zoom_level
     target = max(1, min(4, int(round(float(target)))))
@@ -201,6 +226,8 @@ def perform_control(command, screen_width, screen_height):
     kind = command.get("type")
     if kind == "screen-zoom":
         set_screen_zoom(command.get("zoom", 1))
+    elif kind == "app-zoom":
+        zoom_app(int(command.get("steps", 0)))
     elif kind == "move":
         x = max(0.0, min(1.0, float(command.get("x", 0))))
         y = max(0.0, min(1.0, float(command.get("y", 0))))

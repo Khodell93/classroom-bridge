@@ -447,41 +447,41 @@ function resetPcZoom() {
   applyPcZoom();
 }
 
+// Pinch zooms the app under the fingers with its own zoom (Chrome, Edge, Word, PowerPoint, Excel, File Explorer…),
+// the way a laptop touchpad pinch does: Ctrl + mouse wheel on Windows, ⌘+ / ⌘− on a Mac. Each step is about one
+// notch of the app's zoom, so spreading the fingers ~15% more zooms in one step.
+const PINCH_STEP = 1.15;
+
+function pinchCenter() {
+  const [first, second] = [...activeTouches.values()].slice(0, 2);
+  return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2, distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)) };
+}
+
 function startPinch() {
   if (activeTouches.size < 2) return;
-  const [first, second] = [...activeTouches.values()].slice(0, 2);
-  const bounds = pcStage.getBoundingClientRect();
-  const centerX = (first.x + second.x) / 2;
-  const centerY = (first.y + second.y) / 2;
-  pinchGesture = {
-    distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
-    zoom: pcZoom,
-    anchorX: (centerX - bounds.left - pcPanX) / pcZoom,
-    anchorY: (centerY - bounds.top - pcPanY) / pcZoom,
-  };
+  const center = pinchCenter();
+  pinchGesture = { distance: center.distance };
   mousePointerStart = undefined;
   lastTap = null;
   sendControl({ type: "mouse-up" });
+  sendControl({ type: "move", ...desktopPoint({ clientX: center.x, clientY: center.y }) });
 }
 
 function updatePinch() {
   if (activeTouches.size < 2 || !pinchGesture) return;
-  const [first, second] = [...activeTouches.values()].slice(0, 2);
-  const bounds = pcStage.getBoundingClientRect();
-  const centerX = (first.x + second.x) / 2;
-  const centerY = (first.y + second.y) / 2;
-  pcZoom = Math.max(1, Math.min(4, pinchGesture.zoom * Math.hypot(second.x - first.x, second.y - first.y) / pinchGesture.distance));
-  pcPanX = Math.max(bounds.width * (1 - pcZoom), Math.min(0, centerX - bounds.left - pinchGesture.anchorX * pcZoom));
-  pcPanY = Math.max(bounds.height * (1 - pcZoom), Math.min(0, centerY - bounds.top - pinchGesture.anchorY * pcZoom));
-  let nextHostZoomStep = hostZoomStep;
-  while (nextHostZoomStep < 4 && pcZoom >= nextHostZoomStep + 0.35) nextHostZoomStep += 1;
-  while (nextHostZoomStep > 1 && pcZoom <= nextHostZoomStep - 0.65) nextHostZoomStep -= 1;
-  if (nextHostZoomStep !== hostZoomStep) {
-    hostZoomStep = nextHostZoomStep;
-    sendControl({ type: "screen-zoom", zoom: hostZoomStep });
+  const center = pinchCenter();
+  let steps = 0;
+  while (center.distance >= pinchGesture.distance * PINCH_STEP) {
+    pinchGesture.distance *= PINCH_STEP;
+    steps += 1;
   }
-  sendControl({ type: "move", ...desktopPoint({ clientX: centerX, clientY: centerY }) });
-  applyPcZoom();
+  while (center.distance <= pinchGesture.distance / PINCH_STEP) {
+    pinchGesture.distance /= PINCH_STEP;
+    steps -= 1;
+  }
+  if (!steps) return;
+  sendControl({ type: "move", ...desktopPoint({ clientX: center.x, clientY: center.y }) });
+  sendControl({ type: "app-zoom", steps });
 }
 
 function selectMode(mode) {

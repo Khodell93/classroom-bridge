@@ -98,7 +98,7 @@ class CompanionWindow:
         self.banner_anchor = header
 
         if sys.platform == "darwin":
-            ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart. For iPad pinch-to-zoom on this Mac's display, enable Accessibility → Zoom → Use keyboard shortcuts to zoom.", wraplength=500).pack(anchor="w", pady=(14, 6))
+            ttk.Label(frame, text="First use: allow Screen Recording and Accessibility in System Settings → Privacy & Security, then restart.", wraplength=500).pack(anchor="w", pady=(14, 6))
             permissions = ttk.Frame(frame)
             permissions.pack(anchor="w")
             ttk.Button(permissions, text="Screen Recording settings", command=lambda: self.open_privacy("ScreenCapture")).pack(side="left", padx=(0, 8))
