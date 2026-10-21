@@ -11,13 +11,14 @@
 const DRAW_INPUT_KEY = "classroom-bridge-draw-input";
 const PENCIL_SEEN_KEY = "classroom-bridge-pencil-seen";
 const DRAW_INPUTS = ["pencil", "finger", "pencil-only"];
-const PALM_AFTER_PEN_MS = 600;  // touches this soon after the Pencil lifts are a resting hand
-const PALM_CONTACT_PX = 60;      // a contact this wide is a palm, not a fingertip
+// Touches this soon after the Pencil last touched the screen are a resting hand. Timed from the Pencil's last
+// contact rather than tracking down/up, so a missed "Pencil lifted" event can never block fingers for good.
+// (Contact size isn't used: iPad Safari reports ordinary fingertips as wide as some palms.)
+const PALM_AFTER_PEN_MS = 600;
 const drawInput = {
   chosen: null,
   pencilSeen: false,
-  pensDown: new Set(),
-  penLiftedAt: 0,
+  penContactAt: -Infinity,
   ignored: new Set(),   // touch pointers rejected for the rest of their life
   touchStarts: new Map(),
 };
@@ -61,8 +62,10 @@ function updateDrawInputControls() {
 function rejectDrawPointer(event) {
   const type = event.type;
   if (event.pointerType === "pen") {
+    // A hovering Pencil (iPad Pro) sends moves without touching: those don't count.
+    const touching = type === "pointerdown" || type === "pointerup" || type === "pointercancel" || (event.buttons & 1) || event.pressure > 0;
+    if (touching) drawInput.penContactAt = performance.now();
     if (type === "pointerdown") {
-      drawInput.pensDown.add(event.pointerId);
       if (!drawInput.pencilSeen) {
         drawInput.pencilSeen = true;
         writeStoredValue(PENCIL_SEEN_KEY, "1");
@@ -72,18 +75,14 @@ function rejectDrawPointer(event) {
         }
       }
       cancelRecentTouches();
-    } else if (type === "pointerup" || type === "pointercancel") {
-      drawInput.pensDown.delete(event.pointerId);
-      drawInput.penLiftedAt = performance.now();
     }
     return false;
   }
   if (event.pointerType !== "touch") return false;
   const id = event.pointerId;
   if (type === "pointerdown") {
-    const palm = Math.max(event.width || 0, event.height || 0) >= PALM_CONTACT_PX;
-    const writing = drawInput.pensDown.size > 0 || performance.now() - drawInput.penLiftedAt < PALM_AFTER_PEN_MS;
-    if (drawInputMode() === "pencil-only" || writing || palm) {
+    const writing = performance.now() - drawInput.penContactAt < PALM_AFTER_PEN_MS;
+    if (drawInputMode() === "pencil-only" || writing) {
       drawInput.ignored.add(id);
       event.preventDefault();
       return true;
