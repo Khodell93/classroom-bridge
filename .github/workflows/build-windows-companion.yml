@@ -84,7 +84,10 @@ jobs:
         run: |
           git clone https://github.com/FDH2/UxPlay uxplay-src
           git -C uxplay-src checkout "$UXPLAY_COMMIT"
-          cmake -S uxplay-src -B uxplay-src/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          # NO_MARCH_NATIVE: UxPlay otherwise compiles for the build machine's own CPU (-march=native), and the
+          # receiver then crashes with 0xC000001D (illegal instruction) on school PCs with older processors.
+          cmake -S uxplay-src -B uxplay-src/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNO_MARCH_NATIVE=ON | tee cmake.log
+          if grep -q "Using CFLAGS with  -march=native" cmake.log; then echo "::error::UxPlay would be built for this machine's CPU only"; exit 1; fi
           cmake --build uxplay-src/build
 
       - name: Build the video decoder plugin against a minimal FFmpeg

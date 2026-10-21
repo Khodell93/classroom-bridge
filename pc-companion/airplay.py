@@ -308,6 +308,7 @@ def describe_exit(code):
         0xC0000142: "couldn't start because a DLL failed to initialise",
         0xC0000409: "crashed (stack buffer overrun / fail-fast)",
         0xC000013A: "was interrupted (Ctrl+C)",
+        0xC000001D: "crashed: this PC's processor doesn't support an instruction it uses (illegal instruction)",
         0xC0000022: "was denied access (security software or permissions)",
         0x40010004: "was ended by another program",
     }
