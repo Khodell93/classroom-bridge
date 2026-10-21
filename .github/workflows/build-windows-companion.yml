@@ -75,6 +75,7 @@ jobs:
             mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base
             mingw-w64-ucrt-x86_64-gst-plugins-good mingw-w64-ucrt-x86_64-gst-plugins-bad
             mingw-w64-ucrt-x86_64-gst-libav
+            mingw-w64-ucrt-x86_64-vulkan-loader
 
       # UxPlay 1.74 (development branch) has a built-in mDNS responder, so Windows needs no Apple Bonjour.
       - name: Build UxPlay AirPlay receiver
@@ -90,6 +91,11 @@ jobs:
       - name: Bundle the AirPlay receiver
         shell: msys2 {0}
         run: bash pc-companion/bundle_airplay.sh uxplay-src package/airplay
+
+      - name: Check the receiver needs nothing beyond standard Windows
+        run: |
+          python -m pip install pefile
+          python pc-companion/check_airplay_dependencies.py package/airplay
 
       - name: Check the receiver starts with the companion's settings, even with a stale plugin cache
         run: python pc-companion/test_airplay_receiver.py package/airplay
