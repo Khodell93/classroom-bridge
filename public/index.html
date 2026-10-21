@@ -32,6 +32,7 @@
             </div>
             <div id="pc-touch-ring" class="pc-touch-ring" hidden></div>
             <div class="pc-actions">
+              <button class="glass-button pc-action draw-input-button" title="What draws"><span>✎</span></button>
               <button id="pc-pip" class="glass-button pc-action" aria-label="Show the iPad camera in a corner of the PC screen" title="Camera in a corner">◳</button>
               <button id="pc-capture" class="glass-button pc-action" aria-label="Save the PC screen, with your ink, to this lesson" title="Save PC screen to lesson">⎙</button>
               <button id="pc-keyboard" class="glass-button pc-action" aria-label="Open the keyboard to type on the PC" title="Keyboard">⌨</button>
@@ -75,6 +76,8 @@
             </div>
 
             <aside id="vis-tools" class="vis-panel vis-tools" aria-label="Annotation tools" hidden>
+              <button class="vis-button draw-input-button" title="What draws"><span>✎</span></button>
+              <span class="vis-divider"></span>
               <button class="vis-button vis-tool selected" data-tool="pen" aria-label="Pen" title="Pen">✎</button>
               <button class="vis-button vis-tool" data-tool="highlighter" aria-label="Highlighter" title="Highlighter">▌</button>
               <button id="vis-shape-button" class="vis-button vis-tool" data-tool="shape" aria-label="Shapes" title="Shapes">↗</button>
@@ -331,6 +334,7 @@
     </div>
     <input id="remote-typing-input" class="remote-typing-input" aria-label="Type on the connected computer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
     <script src="/vis-items.js" defer></script>
+    <script src="/draw-input.js" defer></script>
     <script src="/visualiser.js" defer></script>
     <script src="/vis-extras.js" defer></script>
     <script src="/pc-tools.js" defer></script>

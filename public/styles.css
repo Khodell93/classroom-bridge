@@ -113,3 +113,9 @@
 .qr-frame{position:relative;width:min(62vw,62vh);aspect-ratio:1;border:4px solid #fff;border-radius:24px;box-shadow:0 0 0 100vmax #0009}
 .qr-message{position:absolute;z-index:1;top:calc(24px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);max-width:80%;padding:10px 16px;border-radius:12px;background:#000c;color:#fff;font-size:15px;text-align:center}
 .qr-cancel{position:absolute;z-index:1;bottom:calc(32px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);min-width:140px}
+/* What draws: Pencil (fingers control), finger, or Pencil only (fingers ignored). */
+.draw-input-button{position:relative}
+.draw-input-button span{pointer-events:none}
+.draw-input-button[data-input="finger"]{background:#2f4a6d;box-shadow:inset 0 0 0 1px #9cc8ff88}
+.draw-input-button[data-input="pencil-only"]{background:#5a2f3f;box-shadow:inset 0 0 0 1px #ff9cb688}
+.draw-input-button[data-input="pencil-only"]::after{content:"only";position:absolute;right:2px;bottom:2px;padding:0 3px;border-radius:5px;background:#ff4b6e;color:#fff;font-size:9px;font-weight:700;line-height:13px;pointer-events:none}

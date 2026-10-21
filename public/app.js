@@ -114,7 +114,7 @@ function setCanvasSizes() {
 }
 
 function beginInk(canvas, event) {
-  if (!drawEnabled || event.pointerType !== "pen") return false;
+  if (!drawEnabled || !(event.pointerType === "pen" || (event.pointerType === "touch" && fingerDrawsInk()))) return false;
   const bounds = canvas.getBoundingClientRect();
   resizeCanvas(canvas);
   const context = canvas.getContext("2d");
@@ -198,8 +198,9 @@ function updateModeControls() {
   document.querySelectorAll(".pc-only").forEach(element => element.hidden = currentMode !== "pc");
   document.querySelector(".camera-row").hidden = currentMode !== "camera";
   document.querySelector("#draw-hint").textContent = currentMode === "pc"
-    ? "Finger controls the mouse; pinch to zoom the view. Apple Pencil annotations appear on both screens."
-    : "Use the toolbar on the left of the camera to draw. In live view a finger taps to focus and pinches to zoom; Apple Pencil draws.";
+    ? "Apple Pencil annotations appear on both screens. The ✎ button chooses what draws: the Pencil (fingers control the mouse), a finger, or the Pencil only (fingers ignored, so your hand can rest on the screen)."
+    : "Use the toolbar on the left of the camera to draw. The ✎ button at its top chooses whether a finger draws. In live view a finger taps to focus and pinches to zoom.";
+  updateDrawInputControls();
   setCanvasSizes();
   updateVisualiserControls();
 }
@@ -680,19 +681,6 @@ document.querySelector("#disconnect-button").addEventListener("click", () => {
 document.querySelector("#immersive-button").addEventListener("click", () => {
   document.body.classList.toggle("immersive-mode");
 });
-for (const canvas of [pcInk]) {
-  canvas.addEventListener("pointerdown", event => {
-    if (event.pointerType === "pen" && beginInk(canvas, event)) event.preventDefault();
-  });
-  canvas.addEventListener("pointermove", event => {
-    if (drawing) {
-      moveInk(canvas, event);
-      event.preventDefault();
-    }
-  });
-  canvas.addEventListener("pointerup", () => { if (drawing) endInk(); });
-  canvas.addEventListener("pointercancel", endInk);
-}
 
 // PC mode gestures, like a Windows touchscreen:
 //   tap = click (two quick taps = double-click) · one-finger swipe = scroll, with momentum
@@ -941,13 +929,57 @@ function pcTouchUp(event) {
   event.preventDefault();
 }
 
+// The Pencil came down while these touches were on the screen: they are a resting hand, so stop what they started
+// (a press-and-hold drag is released) and ignore them until they lift.
+function cancelPcTouches(ids) {
+  if (pcFingerInk && ids.includes(pcFingerInk.id)) {
+    pcFingerInk = null;
+    endInk();
+  }
+  if (!ids.some(id => pcGesture.touches.has(id))) return;
+  window.clearTimeout(pcGesture.holdTimer);
+  if (pcGesture.mode === "drag") {
+    sendControl({ type: "mouse-up" });
+    showTouchRing(null, false);
+  }
+  if (pcGesture.mode === "pinch") {
+    pinchGesture = undefined;
+    activeTouches.clear();
+  }
+  stopMomentum();
+  for (const id of ids) pcGesture.touches.delete(id);
+  pcGesture.samples = [];
+  pcGesture.mode = pcGesture.touches.size ? "ignore" : null;
+  if (!pcGesture.touches.size) {
+    pcGesture.maxTouches = 0;
+    pcGesture.twoStart = null;
+  }
+}
+
+// In "finger draws" mode one finger inks the PC screen; a second finger turns it into a two-finger gesture.
+let pcFingerInk = null;
+
 pcStage.addEventListener("pointerdown", event => {
   if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
   if (currentMode !== "pc") return;
+  if (rejectDrawPointer(event)) return;
   if (event.pointerType === "pen") {
     beginInk(pcInk, event);
     pcStage.setPointerCapture(event.pointerId);
+    event.preventDefault();
   } else if (event.pointerType === "touch") {
+    if (fingerDrawsInk() && !pcGesture.touches.size && !drawing && beginInk(pcInk, event)) {
+      pcFingerInk = { id: event.pointerId, x: event.clientX, y: event.clientY };
+      pcStage.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+    if (pcFingerInk) {
+      const first = pcFingerInk;
+      pcFingerInk = null;
+      endInk();
+      pcTouchDown({ pointerId: first.id, clientX: first.x, clientY: first.y, preventDefault() {} });
+    }
     pcTouchDown(event);
   } else if (event.isPrimary) {
     sendControl({ type: "move", ...desktopPoint(event) });
@@ -959,17 +991,32 @@ pcStage.addEventListener("pointerdown", event => {
 pcStage.addEventListener("pointermove", event => {
   if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
   if (currentMode !== "pc") return;
+  if (rejectDrawPointer(event)) return;
   if (event.pointerType === "pen") {
     if (drawing) moveInk(pcInk, event);
+  } else if (pcFingerInk?.id === event.pointerId) {
+    pcFingerInk.x = event.clientX;
+    pcFingerInk.y = event.clientY;
+    moveInk(pcInk, event);
+    event.preventDefault();
   } else if (event.pointerType === "touch") {
     pcTouchMove(event);
   } else {
     sendControl({ type: "move", ...desktopPoint(event) });
   }
 });
+function pcFingerInkUp(event) {
+  if (pcFingerInk?.id !== event.pointerId) return false;
+  pcFingerInk = null;
+  endInk();
+  return true;
+}
+
 pcStage.addEventListener("pointerup", event => {
   if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
+  if (rejectDrawPointer(event)) return;
   if (event.pointerType === "pen") endInk();
+  else if (pcFingerInkUp(event)) return;
   else if (event.pointerType === "touch") pcTouchUp(event);
   else {
     sendControl({ type: "move", ...desktopPoint(event) });
@@ -978,7 +1025,9 @@ pcStage.addEventListener("pointerup", event => {
 });
 pcStage.addEventListener("pointercancel", event => {
   if (event.target.closest?.("button")) return; // on-screen buttons such as the keyboard
+  if (rejectDrawPointer(event)) return;
   if (event.pointerType === "pen") endInk();
+  else if (pcFingerInkUp(event)) return;
   else if (event.pointerType === "touch") pcTouchUp(event);
   else sendControl({ type: "mouse-up" });
 });
@@ -1026,6 +1075,7 @@ if (savedCode) {
 }
 if (readStoredValue(FIRST_OPEN_KEY)) setupModal.hidden = true;
 else writeStoredValue(FIRST_OPEN_KEY, "true");
+initDrawInput();
 initVisualiser();
 initPcTools();
 updateModeControls();

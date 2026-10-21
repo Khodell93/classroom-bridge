@@ -50,7 +50,6 @@ const visualiser = {
   spotlight: null,       // { x, y, r } in image coordinates
   curtain: null,         // { reveal } fraction shown from the top
   pip: null,             // { corner, size } picture-in-picture camera over the PC screen (PC mode)
-  pencilSeen: false,
   active: null,          // stroke or shape being drawn
   activePointer: undefined,
   erasing: null,
@@ -1298,15 +1297,41 @@ function toggleCurtain() {
 
 // ---------- Pointer routing ----------
 
-// A finger draws only until an Apple Pencil is used (like Notes), so a resting hand doesn't leave marks.
-// In live view a finger always works the camera instead; on a photo, two fingers always zoom and pan.
+// Whether a finger draws is the teacher's choice (draw-input.js). In live view a finger always works the camera
+// instead; on a photo, two fingers always zoom and pan.
 function fingerDraws() {
-  return !visualiser.pencilSeen && visualiser.page !== "live";
+  return fingerDrawsInk() && visualiser.page !== "live";
+}
+
+// The Pencil came down while these touches were on the screen: they are a resting hand, so undo what they did.
+function cancelVisualiserTouches(ids) {
+  if (visualiser.activePointerType === "touch" && ids.includes(visualiser.activePointer)) {
+    cancelVisualiserInk();
+    visualiser.activePointer = undefined;
+  }
+  let photoChanged = false;
+  for (const id of ids) {
+    if (visualiser.photoTouches.delete(id)) photoChanged = true;
+    cameraTouches.delete(id);
+    visualiser.overlayGesture?.touches.delete(id);
+  }
+  if (cameraTouches.size < 2) cameraPinch = undefined;
+  if (visualiser.overlayGesture) {
+    visualiser.overlayGesture.pinch = undefined;
+    if (!visualiser.overlayGesture.touches.size) visualiser.overlayGesture = null;
+  }
+  if (photoChanged) {
+    if (visualiser.photoTouches.size) startPhotoGesture();
+    else {
+      visualiser.photoGesture = null;
+      syncScene();
+    }
+  }
 }
 
 function handleCameraPointer(event) {
   const type = event.type;
-  if (event.pointerType === "pen") visualiser.pencilSeen = true;
+  if (rejectDrawPointer(event)) return;
   const touch = event.pointerType === "touch";
   if (typeof extras !== "undefined" && extras.crop) return;
   const showing = visualiser.page !== "live" || cameraView === "live";
