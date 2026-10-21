@@ -108,6 +108,7 @@ class AirPlayReceiver:
         self.wanted = False    # the companion wants the receiver running (restart it if it stops)
         self.failures = 0
         self.started_at = 0
+        self.logged = False
 
     @property
     def supported(self):
@@ -132,6 +133,8 @@ class AirPlayReceiver:
             "-fs", "-vs", "d3d11videosink",
             "-ble", str(self.ble_file),
         ]
+        if self.failures:
+            arguments.append("-d")  # it stopped last time: log every step, so the log shows where
         try:
             self.ble_file.unlink(missing_ok=True)  # a stale file would advertise the previous run's port
         except OSError:
@@ -207,12 +210,18 @@ class AirPlayReceiver:
             registry_file(bundled_receiver_dir()).unlink(missing_ok=True)
         self.process = None
         self.beacon.stop()
+        ran_for = time.monotonic() - self.started_at
+        self.log_lines.append(f"--- Receiver exited after {ran_for:.1f} s: {describe_exit(process.returncode)}")
         log_path = settings_dir() / "airplay-log.txt"
         try:
-            log_path.write_text("\n".join(self.log_lines) + "\n", encoding="utf-8")
+            # Every attempt since the companion started (the first one overwrites an older session's log).
+            with log_path.open("a" if self.logged else "w", encoding="utf-8") as output:
+                output.write(f"=== Attempt {self.failures + 1}{' (detailed log)' if self.failures else ''} ===\n")
+                output.write("\n".join(self.log_lines) + "\n")
+            self.logged = True
         except OSError:
             pass
-        if time.monotonic() - self.started_at > 120:
+        if ran_for > 120:
             self.failures = 0
         self.failures += 1
         reason = explain_failure(self.log_lines, process.returncode)
@@ -281,5 +290,25 @@ def explain_failure(lines, code):
     if "dnssd" in text or "dns-sd" in text:
         return "network discovery (mDNS) couldn't start on this PC."
     problem = next((line for line in reversed(lines) if any(word in line.lower() for word in ("error", "fail", "cannot", "could not"))), None)
-    detail = (problem or (lines[-1] if lines else f"exit code {code}")).strip()
-    return f"{detail[:160]}."
+    if problem:
+        return f"{problem.strip()[:160]}."
+    return f"it {describe_exit(code)}. If this keeps happening, security software may be stopping it: ask IT to allow C:\\Program Files\\Classroom Bridge."
+
+
+def describe_exit(code):
+    """What a uxplay.exe exit code means, in words (Windows reports crashes as NTSTATUS codes)."""
+    if code is None:
+        return "was still running"
+    unsigned = code & 0xFFFFFFFF
+    meanings = {
+        0: "closed normally",
+        1: "stopped with an error, or was ended by another program",
+        0xC0000005: "crashed (access violation)",
+        0xC0000135: "couldn't start because a DLL is missing",
+        0xC0000142: "couldn't start because a DLL failed to initialise",
+        0xC0000409: "crashed (stack buffer overrun / fail-fast)",
+        0xC000013A: "was interrupted (Ctrl+C)",
+        0xC0000022: "was denied access (security software or permissions)",
+        0x40010004: "was ended by another program",
+    }
+    return f"{meanings.get(unsigned, 'stopped')} (exit code 0x{unsigned:08X})"
