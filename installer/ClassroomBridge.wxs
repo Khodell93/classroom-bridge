@@ -20,7 +20,15 @@
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Classroom Bridge">
-        <Directory Id="AIRPLAYFOLDER" Name="airplay" />
+        <Directory Id="AIRPLAYFOLDER" Name="airplay">
+          <Directory Id="AIRPLAYLIB" Name="lib">
+            <Directory Id="GSTPLUGINS" Name="gstreamer-1.0" />
+          </Directory>
+          <Directory Id="AIRPLAYLIBEXEC" Name="libexec">
+            <Directory Id="GSTLIBEXEC" Name="gstreamer-1.0" />
+          </Directory>
+          <Directory Id="AIRPLAYLICENSES" Name="licenses" />
+        </Directory>
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
@@ -45,9 +53,13 @@
         </File>
         <fw:FirewallException Id="AirPlayDiscoveryFirewall" Name="Classroom Bridge AirPlay discovery" Port="5353" Protocol="udp" Scope="localSubnet" />
       </Component>
-      <Files Include="$(var.SourceDir)\airplay\**" Directory="AIRPLAYFOLDER">
+      <!-- The receiver's DLLs and its GStreamer plugin folders (the folder layout matters to GStreamer). -->
+      <Files Include="$(var.SourceDir)\airplay\*" Directory="AIRPLAYFOLDER">
         <Exclude Files="$(var.SourceDir)\airplay\uxplay.exe" />
       </Files>
+      <Files Include="$(var.SourceDir)\airplay\lib\gstreamer-1.0\*" Directory="GSTPLUGINS" />
+      <Files Include="$(var.SourceDir)\airplay\libexec\gstreamer-1.0\*" Directory="GSTLIBEXEC" />
+      <Files Include="$(var.SourceDir)\airplay\licenses\*" Directory="AIRPLAYLICENSES" />
     </Feature>
   </Package>
 </Wix>

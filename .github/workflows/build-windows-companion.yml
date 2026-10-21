@@ -194,9 +194,21 @@ jobs:
           $install = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v `"$env:RUNNER_TEMP\install.log`"" -Wait -PassThru
           if ($install.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\install.log" -Tail 60; throw "Install failed ($($install.ExitCode))" }
           $folder = "$env:ProgramFiles\Classroom Bridge"
-          foreach ($path in "ClassroomBridge.exe", "airplay\uxplay.exe", "airplay\lib\gstreamer-1.0") {
+          foreach ($path in "ClassroomBridge.exe", "airplay\uxplay.exe", "airplay\gst-inspect-1.0.exe", "airplay\libexec\gstreamer-1.0\gst-plugin-scanner.exe", "airplay\licenses\UxPlay-LICENSE.txt") {
             if (-not (Test-Path "$folder\$path")) { throw "Missing after install: $path" }
           }
+          # Every file of the receiver bundle must be installed in the same place, and the receiver must work there.
+          $bundled = (Get-ChildItem package\airplay -Recurse -File).Count
+          $installed = (Get-ChildItem "$folder\airplay" -Recurse -File).Count
+          "Receiver files: $bundled bundled, $installed installed"
+          if ($installed -ne $bundled) { throw "Installed receiver has $installed files, expected $bundled" }
+          $env:PATH = "$folder\airplay;C:\Windows\System32;C:\Windows"
+          $env:GST_PLUGIN_PATH = "$folder\airplay\lib\gstreamer-1.0"
+          $env:GST_PLUGIN_SYSTEM_PATH_1_0 = "$folder\airplay\lib\gstreamer-1.0"
+          $env:GST_PLUGIN_SCANNER = "$folder\airplay\libexec\gstreamer-1.0\gst-plugin-scanner.exe"
+          $env:GST_REGISTRY_1_0 = "$env:RUNNER_TEMP\gst-registry-installed.bin"
+          & "$folder\airplay\gst-inspect-1.0.exe" --exists d3d11videosink
+          if ($LASTEXITCODE -ne 0) { throw "Installed receiver can't find its video output plugin" }
           $run = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name ClassroomBridge -ErrorAction SilentlyContinue
           if (-not $run) { throw "Sign-in start entry missing" }
           "Starts at sign-in: $($run.ClassroomBridge)"
