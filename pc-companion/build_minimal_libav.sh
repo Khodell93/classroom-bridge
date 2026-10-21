@@ -15,7 +15,13 @@ gst_version=$(pkg-config --modversion gstreamer-1.0)
 mkdir -p "$work"
 cd "$work"
 
-curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$ffmpeg_version.tar.xz" | tar xJ
+# Downloads retry: a dropped connection to a source server shouldn't fail the whole build.
+fetch() {  # fetch <url> <file>
+  curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o "$2" "$1"
+}
+
+# FFmpeg's official GitHub mirror, at the release tag.
+git clone --quiet --depth 1 --branch "n$ffmpeg_version" https://github.com/FFmpeg/FFmpeg.git "ffmpeg-$ffmpeg_version"
 (
   cd "ffmpeg-$ffmpeg_version"
   ./configure --prefix="$prefix" --enable-shared --disable-static \
@@ -28,7 +34,8 @@ curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$ffmpeg_version.tar.xz" | tar xJ
   make install
 )
 
-curl -fsSL "https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$gst_version.tar.xz" | tar xJ
+fetch "https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$gst_version.tar.xz" gst-libav.tar.xz
+tar xJf gst-libav.tar.xz
 PKG_CONFIG_PATH="$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
   meson setup gst-libav-build "gst-libav-$gst_version" --buildtype=release -Ddoc=disabled -Dtests=disabled
 meson compile -C gst-libav-build
