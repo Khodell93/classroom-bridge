@@ -16,7 +16,9 @@ cp "$prefix/bin/gst-inspect-1.0.exe" "$out/"
 # libplacebo -> vulkan-1.dll (missing on some PCs). The VA-API plugin needs libva too and isn't used, and the
 # codec2json debugging plugin needs a library that isn't bundled.
 libav_build="${3:?path to the build_minimal_libav.sh output}"
-rm -f "$out/lib/gstreamer-1.0/libgstlibav.dll" "$out/lib/gstreamer-1.0/libgstva.dll" "$out/lib/gstreamer-1.0/libgstcodec2json.dll"
+# The Vulkan video plugin needs vulkan-1.dll, which not every PC has; the receiver draws with Direct3D 11.
+rm -f "$out/lib/gstreamer-1.0/libgstlibav.dll" "$out/lib/gstreamer-1.0/libgstva.dll" "$out/lib/gstreamer-1.0/libgstcodec2json.dll" \
+  "$out/lib/gstreamer-1.0/libgstvulkan.dll"
 cp "$libav_build/libgstlibav.dll" "$out/lib/gstreamer-1.0/"
 cp "$libav_build"/prefix/bin/*.dll "$out/"
 export PATH="$out:$PATH"  # so ldd can follow the minimal FFmpeg's own (system-only) dependencies
