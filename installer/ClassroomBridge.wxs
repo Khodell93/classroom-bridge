@@ -42,10 +42,15 @@
 
     <Feature Id="Main" Title="Classroom Bridge">
       <Component Id="CompanionComponent" Directory="INSTALLFOLDER">
-        <File Id="ClassroomBridgeExe" Source="$(var.SourceDir)\ClassroomBridge.exe" KeyPath="yes">
-          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Classroom Bridge"
-                    Description="Connect the classroom iPad" Icon="AppIcon" WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
-        </File>
+        <File Id="ClassroomBridgeExe" Source="$(var.SourceDir)\ClassroomBridge.exe" KeyPath="yes" />
+      </Component>
+      <!-- A plain (not advertised) shortcut: its icon comes from ClassroomBridge.exe itself. An advertised shortcut's
+           icon lives in the hidden Windows Installer cache, and when that copy goes missing (common after upgrades)
+           the taskbar shows a blank white icon. -->
+      <Component Id="StartMenuShortcutComponent" Directory="ProgramMenuFolder">
+        <Shortcut Id="StartMenuShortcut" Name="Classroom Bridge" Description="Connect the classroom iPad"
+                  Target="[#ClassroomBridgeExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\Classroom Bridge" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
       <Component Id="StartHereComponent" Directory="INSTALLFOLDER">
         <File Id="StartHere" Source="$(var.SourceDir)\Start-Here.txt" KeyPath="yes" />

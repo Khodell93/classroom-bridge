@@ -73,10 +73,14 @@ class CameraPresenter:
         self.window.title("Classroom Bridge — Visualiser")
         self.window.configure(bg="black", cursor="none")
         self.window.attributes("-fullscreen", True)
+        # Always on top while it shows: Windows won't let a background app bring a new window to the front, so
+        # the first time the camera opened it appeared behind the teacher's windows. The iPad closes it again.
+        self.window.attributes("-topmost", True)
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
         self.label = tk.Label(self.window, bg="black", borderwidth=0, highlightthickness=0)
         self.label.pack(fill="both", expand=True)
         self.window.lift()
+        self.window.focus_force()
 
     def show_pip(self, image, corner):
         if self.pip_window is None:

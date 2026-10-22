@@ -249,6 +249,9 @@ jobs:
           if ($rules.Count -lt 2) { throw "Firewall rules missing" }
           $rules | Format-Table DisplayName, Enabled, Direction, Action -AutoSize
           if (-not (Test-Path "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Classroom Bridge.lnk")) { throw "Start menu shortcut missing" }
+          $link = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Classroom Bridge.lnk")
+          "Start menu shortcut: $($link.TargetPath) (icon: $($link.IconLocation))"
+          if ($link.TargetPath -ne "$folder\ClassroomBridge.exe") { throw "The Start menu shortcut should point straight at ClassroomBridge.exe (so its icon comes from the app)" }
 
           # Automatic updates: the installer registers the updater task, and running it checks the downloads page.
           if (-not (Get-ScheduledTask -TaskName "Classroom Bridge Updater" -ErrorAction SilentlyContinue)) { throw "Updater task missing" }
