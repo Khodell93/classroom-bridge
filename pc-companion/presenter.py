@@ -28,6 +28,9 @@ class CameraPresenter:
         self.lock = threading.Lock()
         self.scheduled = False
         self.logged_kind = None
+        # While the iPad is screen-mirroring, the mirror shows the camera (better quality, with the app's tools),
+        # so the camera window stays closed. The companion window sets this.
+        self.mirror_active = lambda: False
 
     def handle(self, command):
         with self.lock:
@@ -53,6 +56,9 @@ class CameraPresenter:
             logging.getLogger("projector").info("projector window: %s", kind)
         if kind == "hide":
             self.hide()
+            return
+        if kind == "show" and self.mirror_active():
+            self.hide_full()
             return
         if kind == "pip":
             self.hide_full()

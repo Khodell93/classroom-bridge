@@ -25,6 +25,7 @@ from av import VideoFrame
 from PIL import Image
 
 import diag
+import visualiser
 from visualiser import MediaReceiver, VisualiserScene, relay_camera, send_screenshot
 
 log = logging.getLogger("pc")
@@ -277,7 +278,8 @@ def perform_control(command, screen_width, screen_height):
         pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
 
 
-async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None, on_peer=None, airplay_info=None):
+async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None, on_peer=None, airplay_info=None,
+              mirroring_state=None):
     """on_peer(connected) is told when an iPad connects or disconnects (the window updates only while none is)."""
     on_peer = on_peer or (lambda connected: None)
     stop_event = stop_event or threading.Event()
@@ -289,12 +291,19 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
     peer = None
     pending_candidates = []
     video_track = None
+    current_channel = None
+    sent_mirroring = None  # what the iPad was last told about screen mirroring
     try:
         tls_context = ssl.create_default_context(cafile=certifi.where())
         async with websockets.connect(pair_url, max_size=48_000, ping_interval=20, ssl=tls_context) as socket:
             log.info("signalling connected; waiting for the iPad")
             notify("Ready — enter the pairing code on the iPad.")
             while not stop_event.is_set():
+                # Tell the iPad when screen mirroring starts or stops: while mirroring, its camera mode uses the mirror.
+                mirroring = bool(mirroring_state()) if mirroring_state else False
+                if current_channel is not None and current_channel.readyState == "open" and mirroring != sent_mirroring:
+                    send_json(current_channel, {"type": "mirroring", "active": mirroring})
+                    sent_mirroring = mirroring
                 try:
                     raw = await asyncio.wait_for(socket.recv(), timeout=0.5)
                 except asyncio.TimeoutError:
@@ -318,6 +327,9 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                     peer.addTrack(video_track)
                     prefer_h264(peer)
                     channel = peer.createDataChannel("controls")
+                    current_channel = channel
+                    visualiser.ipad_app_visible = True
+                    sent_mirroring = None
                     ink_channel = peer.createDataChannel("ink", ordered=True, maxRetransmits=0)
                     media_channel = peer.createDataChannel("media", ordered=True)
                     scene = None
@@ -380,6 +392,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
             video_track.capture.close()
         if on_view:
             on_view({"type": "hide"})
+        visualiser.current_scene_mode = None
         on_peer(False)
         notify("Companion stopped.")
 
@@ -413,6 +426,9 @@ def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, ai
             _frequent.add(kind, time.monotonic())
         else:
             log.info("from iPad: %s", diag.describe(command))
+        if kind == "app-visible":
+            visualiser.ipad_app_visible = bool(command.get("visible", True))
+            return
         if command.get("type") == "screenshot":
             if scene:
                 asyncio.ensure_future(send_screenshot(scene, str(command.get("requestId", ""))[:64]))

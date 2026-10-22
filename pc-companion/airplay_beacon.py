@@ -29,7 +29,7 @@ def local_ipv4():
         probe.close()
 
 
-def receiver_port(ble_file, timeout=15):
+def receiver_port(ble_file, timeout=120):  # the first start can spend a minute building the plugin cache
     """UxPlay writes its AirPlay TCP port (little-endian) to the -ble file once it is listening."""
     path = pathlib.Path(ble_file)
     deadline = time.monotonic() + timeout

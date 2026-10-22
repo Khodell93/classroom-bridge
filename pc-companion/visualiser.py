@@ -43,6 +43,12 @@ STAMP_KINDS = {"tick", "cross", "star", "question", "number"}
 _fonts = {}
 
 
+
+# What the iPad's Classroom Bridge is showing (pc, live, photo, blank, hold, pip), or None when it isn't connected.
+current_scene_mode = None
+# False while the teacher has switched from Classroom Bridge to another iPad app.
+ipad_app_visible = True
+
 def fit_size(width, height, screen_width, screen_height):
     scale = min(screen_width / width, screen_height / height)
     return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
@@ -336,6 +342,8 @@ class VisualiserScene:
         if mode not in ("pc", "live", "photo", "blank", "hold", "pip"):
             logging.getLogger("scene").warning("ignored scene with unknown mode %r", mode)
             return
+        global current_scene_mode
+        current_scene_mode = mode
         if mode != getattr(self, "logged_mode", None):
             self.logged_mode = mode
             logging.getLogger("scene").info("iPad scene: %s", mode)

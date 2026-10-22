@@ -257,6 +257,7 @@ function clearConnection() {
   cameraSender = undefined;
   pcVideo.srcObject = null;
   pcPlaceholder.hidden = false;
+  setMirroring(false);
   modifiers.clear();
   document.querySelectorAll(".modifier-key").forEach(button => button.classList.remove("selected"));
   document.querySelector("#modifier-hint").textContent = "Ready";
@@ -566,6 +567,10 @@ function clipboardMessage(event) {
     document.querySelector('[data-shortcut="win+e"]').textContent = hostPlatform === "macos" ? "Open Finder" : "Win+E · Files";
     document.querySelector('[data-shortcut="alt+tab"]').textContent = hostPlatform === "macos" ? "⌘+Tab" : "Alt+Tab";
     document.querySelector("#open-explorer strong").textContent = hostPlatform === "macos" ? "Open Finder" : "File Explorer";
+    return;
+  }
+  if (message.type === "mirroring") {
+    setMirroring(Boolean(message.active));
     return;
   }
   if (message.type === "airplay-info") {
@@ -1056,6 +1061,8 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     wasBackgrounded = true;
     sendControl({ type: "mouse-up" });
+    // The teacher went to another iPad app (OneDrive, PowerPoint…): if the iPad is mirroring, the PC shows it now.
+    sendControl({ type: "app-visible", visible: false });
     if (wakeLockSentinel) {
       wakeLockSentinel.release().catch(() => {});
       wakeLockSentinel = undefined;
@@ -1063,6 +1070,7 @@ document.addEventListener("visibilitychange", () => {
     return;
   }
   requestScreenWakeLock();
+  sendControl({ type: "app-visible", visible: true });
   pcVideo.play().catch(() => {});
   if (sessionActive && wasBackgrounded) {
     wasBackgrounded = false;
@@ -1087,6 +1095,7 @@ if (readStoredValue(FIRST_OPEN_KEY)) setupModal.hidden = true;
 else writeStoredValue(FIRST_OPEN_KEY, "true");
 initDrawInput();
 initIpadApps();
+initMirrorMode();
 initVisualiser();
 initPcTools();
 updateModeControls();

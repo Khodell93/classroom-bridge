@@ -35,6 +35,17 @@ To teach from any iPad app with its own Apple Pencil tools, the teacher mirrors 
 - **Mac:** macOS has a built-in AirPlay Receiver (System Settings → General → AirDrop & Handoff), so nothing extra is bundled.
 - The **iPad apps** button in the web app shows these steps with the PC's exact name and PIN, and checks the receiver, its Bluetooth beacon, the firewall, and whether the iPad and PC reach each other directly.
 
+### Mirroring and the camera (mirror-aware mode)
+
+While the iPad is screen-mirroring to the PC, the companion decides what the projector shows:
+
+- **Another iPad app** (OneDrive, PowerPoint…), or Classroom Bridge not connected: the mirror.
+- **Classroom Bridge Camera** (live or photos): the mirror, instead of the companion's own camera window. That gives AirPlay's picture quality with every tool and annotation exactly as on the iPad, and the iPad stops sending its separate camera stream. The iPad's controls fade out after 4 seconds without a touch so the class sees a clean picture; a finger tap brings them back (that tap doesn't draw), and the Pencil writes without showing them.
+- **Classroom Bridge PC mode**: the real desktop. The mirror window is hidden (never closed: once its window is closed the receiver can't mirror again and can crash), otherwise the projector would show the iPad showing the desktop.
+- **Blank**: the black camera window covers the screen.
+
+The companion learns that mirroring started or stopped from the receiver's own output, and the iPad tells the PC when it moves to another app. When mirroring stops, the camera goes back to its own stream.
+
 ### When the PC isn't listed under Screen Mirroring
 
 iPads find AirPlay receivers with mDNS (Bonjour), which only reaches devices on the same network segment. School networks often put iPads and PCs on different Wi-Fi networks or VLANs, or stop Wi-Fi devices from seeing each other, and let only registered Apple TVs through (a Bonjour gateway such as Cisco or Aruba AirGroup). So an Apple TV appearing does not mean the PC can.

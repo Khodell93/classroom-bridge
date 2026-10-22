@@ -6,7 +6,9 @@ iPads find the receiver by mDNS on the same network segment, and by a Bluetooth 
 when the iPads' Wi-Fi is on a different segment from the PC, as is common in schools.
 """
 
+import ctypes
 import json
+import logging
 import os
 import pathlib
 import secrets
@@ -105,6 +107,8 @@ class AirPlayReceiver:
         self.beacon = Beacon()
         self.ble_file = settings_dir() / "airplay-beacon.bin"
         self.discovery = {}
+        self.mirroring = False  # an iPad is mirroring its screen right now
+        self.on_mirroring = lambda active: None  # set by the window; called from the reader thread
         self.wanted = False    # the companion wants the receiver running (restart it if it stops)
         self.failures = 0
         self.started_at = 0
@@ -194,6 +198,10 @@ class AirPlayReceiver:
             line = raw.decode("utf-8", "replace").rstrip()
             if line:
                 self.log_lines = (self.log_lines + [line])[-200:]
+                if "raop_rtp_mirror starting mirroring" in line or "Begin streaming to GStreamer video pipeline" in line:
+                    self._set_mirroring(True)
+                elif "raop_rtp_mirror->running is no longer true" in line or "Connection closed on socket" in line:
+                    self._set_mirroring(False)
                 if "connection request from" in line:
                     device = line.split("connection request from", 1)[1].split(" with deviceID")[0].strip()
                     self.notify(f"{device} is connecting. If the iPad asks for a PIN, enter {get_or_create_pin()}.")
@@ -202,6 +210,7 @@ class AirPlayReceiver:
                 elif "lost connection with client" in line:
                     self.notify("The iPad's mirroring connection dropped (network problem?). Start Screen Mirroring again.")
         process.wait()
+        self._set_mirroring(False)
         if process is not self.process:
             return  # stopped on purpose
         if any("required gstreamer plugin" in line.lower() for line in self.log_lines):
@@ -230,6 +239,25 @@ class AirPlayReceiver:
             threading.Timer(3 * self.failures, self._restart).start()
         else:
             self.notify(f"iPad apps (AirPlay) keeps stopping: {reason} Details are in {log_path}.")
+
+    def _set_mirroring(self, active):
+        if active != self.mirroring:
+            self.mirroring = active
+            logging.getLogger("airplay").info("iPad screen mirroring %s", "started" if active else "stopped")
+            self.on_mirroring(active)
+
+    def show_mirror(self, visible):
+        """Shows the mirrored iPad full-screen on top, or hides it so the desktop shows. Hiding (never closing) the
+        receiver's window matters: once its window is closed, UxPlay fails the next mirroring and can crash."""
+        process = self.process
+        if process is None or sys.platform != "win32":
+            return False
+        changed = False
+        for hwnd in receiver_windows(process.pid):
+            changed |= set_window_shown(hwnd, visible)
+        if changed:
+            logging.getLogger("airplay").info("mirror window %s", "shown" if visible else "hidden")
+        return changed
 
     def _restart(self):
         if self.wanted and not self.running:
@@ -313,3 +341,45 @@ def describe_exit(code):
         0x40010004: "was ended by another program",
     }
     return f"{meanings.get(unsigned, 'stopped')} (exit code 0x{unsigned:08X})"
+
+
+def receiver_windows(pid):
+    """The receiver's video window(s): visible or hidden top-level windows of uxplay.exe, leaving out the small
+    hidden helper windows Windows gives every program (IME and the like)."""
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    found = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            name = ctypes.create_unicode_buffer(64)
+            user32.GetClassNameW(hwnd, name, 64)
+            rect = wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            if name.value not in ("IME", "MSCTFIME UI") and rect.right - rect.left >= 200 and rect.bottom - rect.top >= 150:
+                found.append(hwnd)
+        return True
+
+    user32.EnumWindows(visit, 0)
+    return found
+
+
+def set_window_shown(hwnd, visible):
+    """Returns True if the window had to change."""
+    user32 = ctypes.windll.user32
+    if bool(user32.IsWindowVisible(hwnd)) == visible:
+        if visible:  # keep it above other windows (e.g. after the teacher clicked the desktop)
+            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # HWND_TOPMOST, NOSIZE|NOMOVE|NOACTIVATE
+        return False
+    if visible:
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+        user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)  # HWND_TOPMOST, NOSIZE|NOMOVE|SHOWWINDOW
+        user32.SetForegroundWindow(hwnd)
+    else:
+        user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # HWND_NOTOPMOST
+        user32.ShowWindow(hwnd, 0)  # SW_HIDE
+    return True

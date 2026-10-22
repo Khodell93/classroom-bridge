@@ -697,8 +697,10 @@ function visualiserMessage(message) {
 
 async function attachCameraTrack() {
   if (!cameraSender) return;
+  // While the iPad screen-mirrors to the PC, the mirror carries the camera (mirror-mode.js), so no separate stream.
+  const mirroring = typeof mirrorMode !== "undefined" && mirrorMode.active;
   const sending = cameraView === "live" && (
-    (currentMode === "camera" && visualiser.page === "live" && !visualiser.hold && !visualiser.blank)
+    (currentMode === "camera" && visualiser.page === "live" && !visualiser.hold && !visualiser.blank && !mirroring)
     || (currentMode === "pc" && Boolean(visualiser.pip)));
   const track = sending ? cameraTrack() ?? null : null;
   try {

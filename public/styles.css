@@ -134,3 +134,6 @@
 .check.warn b{background:#5a4a1f;color:#ffd98a}
 .ipad-apps-card .connect-submit+.connect-submit{margin-top:8px}
 .drawer-footer .diag-mark{margin-left:auto;margin-right:8px;border-color:#5a6f8a;background:#1c2b3f;color:#d6e4f5}
+/* Mirror-aware camera: while the iPad mirrors to the PC, controls fade out in Camera mode so the class sees a clean picture. */
+body.mirroring :is(.topbar, .mode-switch, #vis-tools, #vis-side, #vis-top, #vis-filmstrip, .stage-topline, #camera-controls, #vis-banner, .vis-toast){transition:opacity .35s ease}
+body.mirror-clean :is(.topbar, .mode-switch, #vis-tools, #vis-side, #vis-top, #vis-filmstrip, .stage-topline, #camera-controls, #vis-banner, .vis-toast){opacity:0;pointer-events:none}
