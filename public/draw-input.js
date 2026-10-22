@@ -42,6 +42,7 @@ const DRAW_INPUT_LABELS = {
 function cycleDrawInput() {
   const next = DRAW_INPUTS[(DRAW_INPUTS.indexOf(drawInputMode()) + 1) % DRAW_INPUTS.length];
   drawInput.chosen = next;
+  diag("draw", `draw input set to ${next}`);
   writeStoredValue(DRAW_INPUT_KEY, next);
   updateDrawInputControls();
   showToast(DRAW_INPUT_LABELS[next].toast);
@@ -83,6 +84,7 @@ function rejectDrawPointer(event) {
   if (type === "pointerdown") {
     const writing = performance.now() - drawInput.penContactAt < PALM_AFTER_PEN_MS;
     if (drawInputMode() === "pencil-only" || writing) {
+      diagCount(writing ? "touch-ignored-while-writing" : "touch-ignored-pencil-only");
       drawInput.ignored.add(id);
       event.preventDefault();
       return true;
@@ -103,6 +105,7 @@ function rejectDrawPointer(event) {
 function cancelRecentTouches() {
   const recent = [...drawInput.touchStarts.keys()];
   if (!recent.length) return;
+  diag("draw", `Pencil came down: cancelled ${recent.length} resting touch(es)`);
   for (const id of recent) {
     drawInput.touchStarts.delete(id);
     drawInput.ignored.add(id);

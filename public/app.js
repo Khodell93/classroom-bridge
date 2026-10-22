@@ -52,6 +52,7 @@ const activeTouches = new Map();
 const suppressedTouches = new Set();
 
 function setStatus(label, connected = false) {
+  if (statusEl.querySelector("span").textContent !== label) diag("conn", label);
   statusEl.querySelector("span").textContent = label;
   statusEl.classList.toggle("connected", connected);
 }
@@ -83,6 +84,7 @@ function removeStoredValue(key) {
 }
 
 function sendControl(value) {
+  diagControl(value);
   if (controlChannel?.readyState !== "open") return false;
   controlChannel.send(JSON.stringify(value));
   return true;
@@ -90,6 +92,7 @@ function sendControl(value) {
 
 function sendInk(value) {
   if (inkChannel?.readyState === "open") {
+    diagControl(value);
     if (value.type.startsWith("ink-move") && inkChannel.bufferedAmount > 8192) return false;
     inkChannel.send(JSON.stringify(value));
     return true;
@@ -312,6 +315,7 @@ async function connect() {
       controlChannel.onmessage = clipboardMessage;
     };
     peerConnection.onconnectionstatechange = () => {
+      diag("conn", `WebRTC connection: ${peerConnection.connectionState} (ice ${peerConnection.iceConnectionState})`);
       if (peerConnection.connectionState === "connected") {
         window.clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
@@ -485,6 +489,7 @@ function updatePinch() {
 }
 
 function selectMode(mode) {
+  if (mode !== currentMode) diag("mode", `${currentMode} → ${mode}`);
   if (mode !== "pc") resetPcZoom();
   if (mode !== currentMode) clearInk();
   currentMode = mode;
@@ -677,6 +682,7 @@ document.querySelector("#copy-to-ipad").addEventListener("click", async () => {
     document.querySelector("#clipboard-message").textContent = "Safari blocked clipboard access. You can select the text above and copy it manually.";
   }
 });
+document.querySelector("#diag-mark").addEventListener("click", markProblem);
 document.querySelector("#disconnect-button").addEventListener("click", () => {
   clearConnection();
   toolsDrawer.hidden = true;

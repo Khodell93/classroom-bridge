@@ -15,6 +15,7 @@ import ctypes
 import datetime
 import io
 import json
+import logging
 import math
 import os
 import pathlib
@@ -333,7 +334,11 @@ class VisualiserScene:
     def set_scene(self, message):
         mode = message.get("mode")
         if mode not in ("pc", "live", "photo", "blank", "hold", "pip"):
+            logging.getLogger("scene").warning("ignored scene with unknown mode %r", mode)
             return
+        if mode != getattr(self, "logged_mode", None):
+            self.logged_mode = mode
+            logging.getLogger("scene").info("iPad scene: %s", mode)
         if mode == "hold":
             with self.lock:
                 self.mode = "hold"

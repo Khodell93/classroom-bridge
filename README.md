@@ -81,6 +81,14 @@ Only one companion runs per sign-in: opening it again shows the running one, and
 
 Publishing needs a `DOWNLOADS_TOKEN` repository secret: a fine-grained personal access token limited to `classroom-bridge-downloads` with **Contents: Read and write**. Without it, builds still succeed and skip publishing.
 
+## Diagnostic log (for reporting problems)
+
+The companion keeps a log of what both sides did: connections, mode switches, what the PC was asked to do (clicks, keys, zoom…), what the projector window showed, camera starts and errors, AirPlay receiver events, updates, and any errors. The iPad sends its own events to the companion, so one file covers both, with iPad lines marked `[ipad]` (each with the iPad's own time).
+
+- **Mark a problem** (iPad → Tools drawer, at the bottom) adds a marker with an optional note at the exact moment something went wrong.
+- **Show log** in the companion window opens the folder with the log selected: `%LOCALAPPDATA%\ClassroomBridge\logs\classroom-bridge.log` on Windows, `~/Library/Application Support/ClassroomBridge/logs` on a Mac. It keeps about 8 MB (the current file plus `.log.1`–`.log.3`).
+- Typed and pasted text, the pairing code and the AirPlay PIN are never written to the log, only how long typed text was. Frequent events (pointer moves, scrolling, ink points) are counted rather than listed.
+
 ## Automatic deploys
 
 The **Deploy web app** workflow publishes the iPad web app and Worker whenever they change on `main` or the development branch. It needs two repository secrets, added once:

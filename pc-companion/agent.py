@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import ctypes
 import json
+import logging
 import os
 import pathlib
 import secrets
@@ -9,6 +10,7 @@ import ssl
 import subprocess
 import sys
 import threading
+import time
 
 import certifi
 import mss
@@ -22,7 +24,11 @@ from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
 from PIL import Image
 
+import diag
 from visualiser import MediaReceiver, VisualiserScene, relay_camera, send_screenshot
+
+log = logging.getLogger("pc")
+_frequent = diag.FrequentCounter(logging.getLogger("controls"))
 
 # aiortc caps video at 1.5 Mbps (VP8) by default, which blurs text on a classroom display.
 vpx.MAX_BITRATE = h264.MAX_BITRATE = 6_000_000
@@ -277,6 +283,8 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
     stop_event = stop_event or threading.Event()
     width, height = pyautogui.size()
     pair_url = f"{signal_url.rstrip('/')}/signal/{room}?role=pc"
+    asyncio.get_running_loop().set_exception_handler(diag.asyncio_exception_handler)
+    log.info("connecting to the signalling server (screen %sx%s)", width, height)
     notify("Connecting to Classroom Bridge…")
     peer = None
     pending_candidates = []
@@ -284,6 +292,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
     try:
         tls_context = ssl.create_default_context(cafile=certifi.where())
         async with websockets.connect(pair_url, max_size=48_000, ping_interval=20, ssl=tls_context) as socket:
+            log.info("signalling connected; waiting for the iPad")
             notify("Ready — enter the pairing code on the iPad.")
             while not stop_event.is_set():
                 try:
@@ -291,13 +300,20 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                 except asyncio.TimeoutError:
                     continue
                 message = json.loads(raw)
+                if message.get("type") != "candidate":
+                    log.info("signalling: %s", message.get("type"))
                 if message.get("type") == "peer-ready":
                     if peer is not None:
+                        log.info("iPad reconnected: replacing the previous connection")
                         await peer.close()
                         if video_track:
                             video_track.capture.close()
                     peer = RTCPeerConnection()
-                    peer.on("connectionstatechange", lambda peer=peer: on_peer(peer.connectionState == "connected"))
+                    def connection_changed(peer=peer):
+                        log.info("iPad connection: %s (ice %s)", peer.connectionState, peer.iceConnectionState)
+                        on_peer(peer.connectionState == "connected")
+
+                    peer.on("connectionstatechange", connection_changed)
                     video_track = DesktopVideo()
                     peer.addTrack(video_track)
                     prefer_h264(peer)
@@ -315,6 +331,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
 
                         @peer.on("track")
                         def on_track(track, scene=scene):
+                            log.info("iPad camera track arrived (%s)", track.kind)
                             if track.kind == "video":
                                 asyncio.ensure_future(relay_camera(track, scene))
                     channel.on("open", lambda: channel.send(json.dumps({
@@ -352,7 +369,11 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                         pending_candidates.append(candidate)
     except KeyboardInterrupt:
         pass
+    except Exception:
+        log.exception("connection ended with an error")
+        raise
     finally:
+        log.info("companion connection stopped")
         if peer is not None:
             await peer.close()
         if video_track:
@@ -381,8 +402,17 @@ def send_blob(channel, kind, data, meta):
 
 
 def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, airplay_info=None):
+    command = None
     try:
         command = json.loads(raw)
+        kind = command.get("type")
+        if kind == "log":
+            diag.write_ipad_entries(command.get("entries"))
+            return
+        if kind in diag.FREQUENT:
+            _frequent.add(kind, time.monotonic())
+        else:
+            log.info("from iPad: %s", diag.describe(command))
         if command.get("type") == "screenshot":
             if scene:
                 asyncio.ensure_future(send_screenshot(scene, str(command.get("requestId", ""))[:64]))
@@ -409,7 +439,9 @@ def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, ai
     except pyperclip.PyperclipException:
         if channel and channel.readyState == "open":
             channel.send(json.dumps({"type": "clipboard-error"}))
-    except (ValueError, TypeError, KeyError, pyautogui.FailSafeException):
+    except (ValueError, TypeError, KeyError, pyautogui.FailSafeException) as error:
+        summary = diag.describe(command) if isinstance(command, dict) else "<unreadable message>"
+        log.warning("couldn't carry out an iPad command (%s: %s): %s", type(error).__name__, error, summary)
         return
 
 

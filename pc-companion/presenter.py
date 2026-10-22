@@ -1,3 +1,4 @@
+import logging
 import threading
 import tkinter as tk
 
@@ -26,6 +27,7 @@ class CameraPresenter:
         self.pending = None
         self.lock = threading.Lock()
         self.scheduled = False
+        self.logged_kind = None
 
     def handle(self, command):
         with self.lock:
@@ -46,6 +48,9 @@ class CameraPresenter:
         if command is None:
             return
         kind = command.get("type")
+        if kind != self.logged_kind:
+            self.logged_kind = kind
+            logging.getLogger("projector").info("projector window: %s", kind)
         if kind == "hide":
             self.hide()
             return

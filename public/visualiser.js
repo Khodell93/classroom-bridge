@@ -647,6 +647,10 @@ function syncScene() {
   enqueueMedia(async () => {
     if (version !== visualiser.sceneVersion || mediaChannel?.readyState !== "open") return;
     const message = sceneMessage();
+    if (message.mode !== visualiser.loggedSceneMode) {
+      visualiser.loggedSceneMode = message.mode;
+      diag("scene", `PC shows: ${message.mode}`);
+    }
     if (message.mode === "photo" && !visualiser.sentPhotos.has(message.photoId)) {
       const photo = currentPhoto();
       if (photo && await sendBlobNow("photo", photo.blob, { photoId: photo.id })) visualiser.sentPhotos.add(photo.id);
@@ -725,6 +729,7 @@ async function openCamera() {
     toolsDrawer.hidden = true;
     await startCamera(cameraFacing);
   } catch (error) {
+    diag("camera", `couldn't start: ${error?.name} ${error?.message || error}`);
     document.querySelector("#camera-message").textContent = error?.name === "NotAllowedError"
       ? "Camera access is blocked. Allow the camera for this site in Settings → Apps → Safari → Camera, then tap Start camera."
       : `Camera unavailable: ${error?.message || error}. Choose a photo instead.`;
@@ -746,6 +751,9 @@ async function startCamera(facing) {
   cameraVideo.srcObject = cameraStream;
   cameraVideo.onloadedmetadata = () => { layoutCameraVideo(); requestInkRender(); };
   cameraView = "live";
+  const started = track?.getSettings() ?? {};
+  diag("camera", `started ${facing}: ${started.width}×${started.height} @${started.frameRate} fps`);
+  track?.addEventListener("ended", () => diag("camera", "camera track ended (another app took the camera, or the iPad paused it)"));
   showLive();
   if (typeof updatePipControls === "function") updatePipControls();
 }

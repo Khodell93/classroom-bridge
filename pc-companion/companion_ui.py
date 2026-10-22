@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import ctypes
 import os
 import pathlib
@@ -15,6 +16,7 @@ import qrcode
 from PIL import Image, ImageTk
 
 import single_instance
+import diag
 import startup
 import updater
 from agent import get_or_create_pairing_code, run, settings_dir
@@ -25,6 +27,7 @@ from presenter import CameraPresenter
 
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
 APP_URL = "https://classroom-bridge.nathan-sant.workers.dev"
+log = logging.getLogger("app")
 ASSETS = pathlib.Path(getattr(sys, "_MEIPASS", pathlib.Path(__file__).parent)) / "assets"
 UPDATE_CHECK_MS = 6 * 60 * 60 * 1000
 # An automatic update restarts the app, so it waits until no iPad is connected and either the app has only just
@@ -142,6 +145,7 @@ class CompanionWindow:
         self.stop_button.pack(side="left", padx=(8, 0))
         ttk.Button(buttons, text="Quit", command=self.quit_app).pack(side="right")
         ttk.Button(buttons, text="Hide window", command=self.hide_window).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="Show log", command=self.show_log).pack(side="right", padx=(0, 8))
 
         if sys.platform == "darwin":
             # Closing the window keeps the companion running; clicking the Dock icon brings it back; ⌘Q quits.
@@ -398,6 +402,8 @@ class CompanionWindow:
         threading.Thread(target=work, daemon=True).start()
 
     def handle_update_message(self, kind, value):
+        if kind != "progress":
+            log.info("update/iPad event: %s %s", kind, value.get("title", "") if isinstance(value, dict) else value)
         if kind == "ipad":
             self.ipad_connected = value
             if not value:
@@ -428,10 +434,12 @@ class CompanionWindow:
     # Main loop -------------------------------------------------------------------------------------------------------
 
     def poll_messages(self):
-        for source, handle in ((self.messages, self.status.set), (self.airplay_messages, self.airplay_status.set)):
+        for source, handle, name in ((self.messages, self.status.set, "status"), (self.airplay_messages, self.airplay_status.set, "airplay")):
             try:
                 while True:
-                    handle(source.get_nowait())
+                    text = source.get_nowait()
+                    logging.getLogger(name).info("%s", str(text).replace(get_or_create_pin(), "<PIN>"))
+                    handle(text)
             except queue.Empty:
                 pass
         try:
@@ -463,7 +471,23 @@ class CompanionWindow:
             self.install_update_if_quiet()
         self.root.after(100, self.poll_messages)
 
+    def show_log(self):
+        """Opens the log folder with the log file selected, so it can be attached to an email."""
+        path = diag.log_path()
+        log.info("teacher opened the log folder")
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["explorer", "/select,", str(path)])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", str(path)])
+            self.status.set(f"The log is {path}. Send that file (and the older .log.1, .log.2 files if there are any).")
+        except OSError as error:
+            self.status.set(f"The log is {path} (couldn't open the folder: {error}).")
+
     def quit_app(self):
+        log.info("companion quitting")
         self.stop_event.set()
         self.airplay.stop()
         self.close_overlay()
@@ -482,9 +506,13 @@ def main():
     keep_running, note = single_instance.claim()
     if not keep_running:
         return
+    diag.setup()
+    if note:
+        log.info("%s", note)
     startup.remove_user_entry()
     startup.apply_first_run_default()
     root = tk.Tk()
+    root.report_callback_exception = lambda kind, value, traceback: log.error("Error in the window", exc_info=(kind, value, traceback))
     window = CompanionWindow(root, background="--background" in sys.argv)
     if note:
         root.after(1500, lambda: window.status.set(note))

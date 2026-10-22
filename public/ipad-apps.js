@@ -30,6 +30,7 @@ async function connectionRoute() {
 }
 
 function openIpadApps() {
+  diag("ipad-apps", "panel opened");
   document.querySelector("#ipad-apps").hidden = false;
   ipadApps.retry = 0;
   refreshIpadApps();
@@ -56,6 +57,7 @@ async function refreshIpadApps() {
 }
 
 function ipadAppsInfo(message) {
+  diag("ipad-apps", `PC reports: running=${message.running} bluetooth=${message.bluetooth} firewall=${message.firewall} checking=${message.checking}`);
   ipadApps.info = message;
   ipadApps.unanswered = false;
   renderIpadApps();
