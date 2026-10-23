@@ -321,6 +321,8 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                     def connection_changed(peer=peer):
                         log.info("iPad connection: %s (ice %s)", peer.connectionState, peer.iceConnectionState)
                         on_peer(peer.connectionState == "connected")
+                        if peer.connectionState in ("closed", "failed"):
+                            ipad_gone(on_ink, on_view)
 
                     peer.on("connectionstatechange", connection_changed)
                     video_track = DesktopVideo()
@@ -397,6 +399,20 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
         notify("Companion stopped.")
 
 
+def ipad_gone(on_ink=None, on_view=None):
+    """Puts the PC back to normal when the iPad leaves: mouse button released, ink cleared, camera window closed."""
+    log.info("iPad left: releasing the mouse, clearing ink, closing the camera window")
+    try:
+        pyautogui.mouseUp()
+    except Exception:
+        pass
+    if on_ink:
+        on_ink({"type": "ink-clear"})
+    if on_view:
+        on_view({"type": "hide"})
+    visualiser.current_scene_mode = None
+
+
 def send_json(channel, message):
     if channel.readyState == "open":
         channel.send(json.dumps(message))
@@ -428,6 +444,14 @@ def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, ai
             log.info("from iPad: %s", diag.describe(command))
         if kind == "app-visible":
             visualiser.ipad_app_visible = bool(command.get("visible", True))
+            return
+        if kind == "ipad-away":
+            # The iPad was locked or the teacher switched to another app: Classroom Bridge disconnects completely
+            # (it reconnects when reopened). An AirPlay mirror, if iOS keeps it going, is shown by the window.
+            visualiser.ipad_app_visible = False
+            if scene:
+                scene.set_scene({"type": "scene", "mode": "pc"})  # stop composing camera frames
+            ipad_gone(on_ink, scene.show if scene else None)
             return
         if command.get("type") == "screenshot":
             if scene:

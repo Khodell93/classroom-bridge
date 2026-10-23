@@ -137,3 +137,4 @@
 /* Mirror-aware camera: while the iPad mirrors to the PC, controls fade out in Camera mode so the class sees a clean picture. */
 body.mirroring :is(.topbar, .mode-switch, #vis-tools, #vis-side, #vis-top, #vis-filmstrip, .stage-topline, #camera-controls, #vis-banner, .vis-toast){transition:opacity .35s ease}
 body.mirror-clean :is(.topbar, .mode-switch, #vis-tools, #vis-side, #vis-top, #vis-filmstrip, .stage-topline, #camera-controls, #vis-banner, .vis-toast){opacity:0;pointer-events:none}
+.mirror-pill{position:absolute;z-index:4;left:50%;top:110px;transform:translateX(-50%);padding:8px 14px;border:1px solid #e0b84a88;border-radius:99px;background:#3a2f0cdd;color:#ffe9a8;font-size:12px;font-weight:650;cursor:pointer;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}

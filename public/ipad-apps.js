@@ -57,6 +57,7 @@ async function refreshIpadApps() {
 }
 
 function ipadAppsInfo(message) {
+  if (typeof mirrorInfoArrived === "function") mirrorInfoArrived(message);
   diag("ipad-apps", `PC reports: running=${message.running} bluetooth=${message.bluetooth} firewall=${message.firewall} checking=${message.checking}`);
   ipadApps.info = message;
   ipadApps.unanswered = false;

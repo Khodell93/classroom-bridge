@@ -46,6 +46,10 @@ While the iPad is screen-mirroring to the PC, the companion decides what the pro
 
 The companion learns that mirroring started or stopped from the receiver's own output, and the iPad tells the PC when it moves to another app. When mirroring stops, the camera goes back to its own stream.
 
+The camera defaults to the mirror: opening Camera mode without mirroring (on a PC whose receiver is running) shows the two taps to start Screen Mirroring, with the PC's receiver name, once per lesson, then a small reminder. The teacher can choose **Use standard quality this lesson** instead.
+
+When the iPad is locked or the teacher leaves Classroom Bridge, it disconnects completely and the PC goes back to normal: mouse released, ink cleared, camera window closed (and when locking stops mirroring, the mirror window is hidden too). Reopening Classroom Bridge reconnects by itself. A web app can't tell a lock from an app switch, so both do this; if iOS keeps mirroring (another app), the PC shows the mirror.
+
 ### When the PC isn't listed under Screen Mirroring
 
 iPads find AirPlay receivers with mDNS (Bonjour), which only reaches devices on the same network segment. School networks often put iPads and PCs on different Wi-Fi networks or VLANs, or stop Wi-Fi devices from seeing each other, and let only registered Apple TVs through (a Bonjour gateway such as Cisco or Aruba AirGroup). So an Apple TV appearing does not mean the PC can.

@@ -412,6 +412,8 @@ class CompanionWindow:
         if kind == "mirroring":
             if value and self.presenter.logged_kind == "show":
                 self.presenter.hide_full()  # the mirror takes over the camera
+            if not value:
+                self.airplay.show_mirror(False)  # e.g. the iPad locked: don't leave its last frame on the projector
             self.apply_mirror_visibility()
             return
         if kind == "ipad":

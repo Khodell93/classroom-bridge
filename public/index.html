@@ -142,6 +142,7 @@
               </div>
             </div>
 
+            <button id="mirror-pill" class="mirror-pill" type="button" hidden>Standard quality · tap for best quality</button>
             <div id="vis-top" class="vis-panel vis-top" hidden>
               <button id="vis-lesson" class="vis-action vis-lesson-button">▤ Lesson</button>
               <button id="vis-timelapse-stop" class="vis-action warn" hidden></button>
@@ -309,6 +310,22 @@
         </section>
         <div id="vis-toast" class="vis-toast" role="status" hidden></div>
       </section>
+
+      <div id="mirror-prompt" class="modal-overlay" hidden>
+        <section class="setup-card ipad-apps-card" role="dialog" aria-modal="true" aria-labelledby="mirror-prompt-title">
+          <div class="setup-symbol">◉</div>
+          <p class="eyebrow">Camera</p>
+          <h1 id="mirror-prompt-title">For the best picture, turn on Screen Mirroring</h1>
+          <p class="setup-copy">The projector then shows the camera at full AirPlay quality, with all your tools. Leave it on for the lesson: PC mode still shows the PC.</p>
+          <ol class="ipad-apps-steps">
+            <li>Swipe down from the top-right corner to open <strong>Control Centre</strong>.</li>
+            <li>Tap <strong>Screen Mirroring</strong> and choose <strong class="mirror-prompt-name">Classroom Bridge</strong>.</li>
+            <li>Come back to Classroom Bridge. It switches over by itself.</li>
+          </ol>
+          <button id="mirror-prompt-standard" class="secondary connect-submit" type="button">Use standard quality this lesson</button>
+          <button id="mirror-prompt-done" class="primary connect-submit" type="button">OK</button>
+        </section>
+      </div>
 
       <div id="ipad-apps" class="modal-overlay" hidden>
         <section class="setup-card ipad-apps-card" role="dialog" aria-modal="true" aria-labelledby="ipad-apps-title">

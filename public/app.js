@@ -1060,9 +1060,17 @@ document.querySelector("#pc-keyboard").addEventListener("click", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     wasBackgrounded = true;
-    sendControl({ type: "mouse-up" });
-    // The teacher went to another iPad app (OneDrive, PowerPoint…): if the iPad is mirroring, the PC shows it now.
-    sendControl({ type: "app-visible", visible: false });
+    // Locked, or the teacher went to another iPad app: disconnect completely, so the PC goes back to normal (camera
+    // window closed, ink cleared, mouse released). Reopening Classroom Bridge reconnects. A web app can't tell a
+    // lock from an app switch; if iOS keeps screen mirroring (another app), the PC shows the mirror.
+    sendControl({ type: "ipad-away" });
+    if (sessionActive) {
+      const code = activePairingCode;
+      clearConnection();
+      sessionActive = true;
+      activePairingCode = code;
+      setStatus("Paused while the iPad is locked or in another app");
+    }
     if (wakeLockSentinel) {
       wakeLockSentinel.release().catch(() => {});
       wakeLockSentinel = undefined;
@@ -1070,7 +1078,6 @@ document.addEventListener("visibilitychange", () => {
     return;
   }
   requestScreenWakeLock();
-  sendControl({ type: "app-visible", visible: true });
   pcVideo.play().catch(() => {});
   if (sessionActive && wasBackgrounded) {
     wasBackgrounded = false;
