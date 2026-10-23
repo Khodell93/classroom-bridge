@@ -395,6 +395,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
         if on_view:
             on_view({"type": "hide"})
         visualiser.current_scene_mode = None
+        visualiser.current_app_mode = None
         on_peer(False)
         notify("Companion stopped.")
 
@@ -411,6 +412,7 @@ def ipad_gone(on_ink=None, on_view=None):
     if on_view:
         on_view({"type": "hide"})
     visualiser.current_scene_mode = None
+    visualiser.current_app_mode = None
 
 
 def send_json(channel, message):

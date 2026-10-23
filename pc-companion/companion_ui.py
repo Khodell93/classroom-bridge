@@ -493,7 +493,13 @@ class CompanionWindow:
         if not self.airplay.mirroring:
             return
         in_app = self.ipad_connected and visualiser.ipad_app_visible
-        self.airplay.show_mirror(not in_app or visualiser.current_scene_mode in ("live", "photo", "hold"))
+        if not in_app:
+            visible = True
+        elif visualiser.current_app_mode is not None:  # the teacher's chosen mode (camera may still be off)
+            visible = visualiser.current_app_mode == "camera" and visualiser.current_scene_mode != "blank"
+        else:  # an older iPad app that doesn't say
+            visible = visualiser.current_scene_mode in ("live", "photo", "hold")
+        self.airplay.show_mirror(visible)
 
     def show_log(self):
         """Opens the log folder with the log file selected, so it can be attached to an email."""

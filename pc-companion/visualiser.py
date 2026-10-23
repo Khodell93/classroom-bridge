@@ -46,6 +46,8 @@ _fonts = {}
 
 # What the iPad's Classroom Bridge is showing (pc, live, photo, blank, hold, pip), or None when it isn't connected.
 current_scene_mode = None
+# The mode the teacher chose in Classroom Bridge ("pc" or "camera"), even while the camera is still off.
+current_app_mode = None
 # False while the teacher has switched from Classroom Bridge to another iPad app.
 ipad_app_visible = True
 
@@ -342,8 +344,9 @@ class VisualiserScene:
         if mode not in ("pc", "live", "photo", "blank", "hold", "pip"):
             logging.getLogger("scene").warning("ignored scene with unknown mode %r", mode)
             return
-        global current_scene_mode
+        global current_scene_mode, current_app_mode
         current_scene_mode = mode
+        current_app_mode = message.get("app") if message.get("app") in ("pc", "camera") else None
         if mode != getattr(self, "logged_mode", None):
             self.logged_mode = mode
             logging.getLogger("scene").info("iPad scene: %s", mode)

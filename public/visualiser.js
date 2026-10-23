@@ -594,7 +594,13 @@ function commitTextEditor() {
 
 // ---------- Talking to the PC ----------
 
+// What the projector shows, plus which mode the teacher chose ("app"): the PC uses that to decide whether an AirPlay
+// mirror should be on screen (Camera) or hidden (PC), even while the camera is still off.
 function sceneMessage() {
+  return { ...projectorScene(), app: currentMode };
+}
+
+function projectorScene() {
   if (currentMode !== "camera") {
     if (visualiser.pip && cameraView === "live") {
       return { type: "scene", mode: "pip", corner: visualiser.pip.corner, size: visualiser.pip.size, rotation: visualiser.liveRotation, adjust: visualiser.liveAdjust };
@@ -1515,8 +1521,9 @@ function visualiserModeChanged(mode) {
   renderFilmstrip();
   requestInkRender();
   syncScene();
-  // Like the Camera app: opening Camera mode turns the camera on (this tap also satisfies Safari's permission rule).
-  if (mode === "camera" && cameraView === "off" && visualiser.page === "live") openCamera();
+  // Like the Camera app: opening Camera mode turns the camera on (this tap also satisfies Safari's permission rule),
+  // unless the teacher is first being asked to start Screen Mirroring (mirror-mode.js), which starts it later.
+  if (mode === "camera" && cameraView === "off" && visualiser.page === "live" && cameraMayStart()) openCamera();
 }
 
 function closeFlyouts(except) {

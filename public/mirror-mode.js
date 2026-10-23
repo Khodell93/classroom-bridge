@@ -6,7 +6,7 @@
 // Loaded after visualiser.js and before app.js.
 
 const MIRROR_IDLE_MS = 4000;
-const mirrorMode = { active: false, lastActivity: 0, revealPointer: null, standardChosen: false, prompted: false, askedPcAt: -Infinity, pcCanMirror: true };
+const mirrorMode = { active: false, lastActivity: 0, revealPointer: null, standardChosen: false, prompted: false, askedPcAt: -Infinity, pcCanMirror: true, receiverDown: false };
 
 // The camera defaults to the mirror. A web app can't start Screen Mirroring itself, so in Camera mode without it,
 // Classroom Bridge shows the two taps (once per lesson, then a small reminder pill), unless the teacher chooses the
@@ -18,6 +18,9 @@ function mirrorPromptApplies() {
 function updateMirrorPrompt() {
   const applies = mirrorPromptApplies();
   document.querySelector("#mirror-pill").hidden = !applies || !mirrorMode.standardChosen && !mirrorMode.prompted;
+  document.querySelector("#mirror-pill").textContent = mirrorMode.standardChosen
+    ? "Standard quality · tap for best quality"
+    : "Camera off · tap to start Screen Mirroring or use standard quality";
   if (!applies) {
     document.querySelector("#mirror-prompt").hidden = true;
     return;
@@ -29,10 +32,29 @@ function updateMirrorPrompt() {
   }
 }
 
+// Camera mode waits for the teacher's choice: mirroring (best) or the standard stream. Without a PC that can receive
+// mirroring (not connected, a Mac host, or its receiver isn't running), the camera starts straight away.
+function cameraMayStart() {
+  if (mirrorMode.active || mirrorMode.standardChosen) return true;
+  if (!mirrorPromptApplies() || !mirrorMode.pcCanMirror || mirrorMode.receiverDown) return true;
+  mirrorMode.askedPcAt = performance.now();
+  sendControl({ type: "airplay-info" }); // the answer opens the prompt, or starts the camera
+  return false;
+}
+
+function startCameraIfWaiting() {
+  if (currentMode === "camera" && cameraView === "off" && visualiser.page === "live") openCamera();
+}
+
 function mirrorInfoArrived(info) {
   if (info.name) mirrorReceiverName(info.name);
-  if (info.supported && info.running && mirrorPromptApplies() && !mirrorMode.prompted && !mirrorMode.standardChosen) openMirrorPrompt();
   if (!info.supported) mirrorMode.pcCanMirror = false; // no receiver here (e.g. a Mac host): don't keep asking
+  mirrorMode.receiverDown = Boolean(info.supported && !info.running);
+  if (info.supported && info.running) {
+    if (mirrorPromptApplies() && !mirrorMode.prompted && !mirrorMode.standardChosen) openMirrorPrompt();
+  } else if (!mirrorMode.standardChosen && !mirrorMode.active) {
+    startCameraIfWaiting();
+  }
 }
 
 function openMirrorPrompt() {
@@ -66,6 +88,7 @@ function setMirroring(active) {
   if (active) {
     document.querySelector("#mirror-prompt").hidden = true;
     showToast("Screen Mirroring is on. In Camera, the projector shows this iPad's screen (best quality); the toolbars hide after a few seconds — tap to show them.", 6);
+    startCameraIfWaiting();
   }
   updateMirrorPrompt();
   attachCameraTrack();
@@ -96,6 +119,7 @@ function initMirrorMode() {
     diag("mirror", "teacher chose the standard camera stream for this lesson");
     document.querySelector("#mirror-prompt").hidden = true;
     updateMirrorPrompt();
+    startCameraIfWaiting(); // this tap also satisfies Safari's camera permission rule
   });
   document.querySelector("#mirror-pill").addEventListener("click", openMirrorPrompt);
   for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
