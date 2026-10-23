@@ -9,10 +9,13 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.view.View;
@@ -20,6 +23,8 @@ import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
+import android.webkit.WebMessage;
+import android.webkit.WebMessagePort;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -39,17 +44,21 @@ import java.util.Map;
 /**
  * Classroom Bridge for Android tablets: the same web app the iPads use, full screen, with what a browser tab can't
  * do on its own here: camera and microphone permission, the photo picker, saving photos and recordings to the tablet,
- * and the clipboard. Everything else (pairing, the PC screen, the visualiser) is the web app, so it updates itself.
+ * the clipboard, and sharing the tablet's screen with the PC (ScreenShareService). Everything else (pairing, the PC
+ * screen, the visualiser) is the web app, so it updates itself.
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements ScreenShareService.Sink {
     private static final int MEDIA_PERMISSIONS = 1;
     private static final int PICK_FILES = 2;
+    private static final int SHARE_SCREEN = 4;
 
     private WebView webView;
     private PermissionRequest pendingPermission;
     private ValueCallback<Uri[]> pendingFiles;
     private final Map<String, Saving> savings = new HashMap<>();
     private Uri appUri;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private WebMessagePort sharePort; // frames and sharing state go to the page through this
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,8 +82,17 @@ public class MainActivity extends Activity {
         settings.setSupportZoom(false);
         settings.setUserAgentString(settings.getUserAgentString() + " ClassroomBridgeAndroid/" + BuildConfig.VERSION_NAME);
         webView.addJavascriptInterface(new Bridge(), "ClassroomBridgeAndroid");
+        // While the screen is shared the page keeps forwarding it from the background (the teacher is in another
+        // app), so its renderer must not be put to sleep when it isn't visible.
+        webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        ScreenShareService.setSink(this);
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                if (isAppPage(Uri.parse(url))) connectSharePort();
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
@@ -189,6 +207,18 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == SHARE_SCREEN) {
+            if (resultCode != RESULT_OK || data == null) {
+                onShareState(false, "refused", 0, 0);
+                return;
+            }
+            Intent share = new Intent(this, ScreenShareService.class).setAction(ScreenShareService.ACTION_START)
+                    .putExtra(ScreenShareService.EXTRA_RESULT_CODE, resultCode)
+                    .putExtra(ScreenShareService.EXTRA_RESULT_DATA, data);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(share);
+            else startService(share);
+            return;
+        }
         if (requestCode != PICK_FILES || pendingFiles == null) return;
         Uri[] result = null;
         if (resultCode == RESULT_OK && data != null) {
@@ -221,14 +251,71 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         // The page sees itself hidden, so (as on the iPad) it lets go of the PC while the tablet is locked or in
-        // another app, and reconnects when it comes back.
-        webView.onPause();
+        // another app, and reconnects when it comes back. While the screen is shared it keeps running instead.
+        if (!ScreenShareService.isRunning()) webView.onPause();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         webView.onResume();
+    }
+
+    // ---------- Screen sharing ----------
+
+    /** A fresh message channel to the page (after each page load): the page keeps one end, frames arrive on it. */
+    private void connectSharePort() {
+        if (sharePort != null) sharePort.close();
+        WebMessagePort[] ports = webView.createWebMessageChannel();
+        sharePort = ports[0];
+        sharePort.setWebMessageCallback(new WebMessagePort.WebMessageCallback() {
+            @Override
+            public void onMessage(WebMessagePort port, WebMessage message) {
+                if ("keyframe".equals(message.getData())) ScreenShareService.requestKeyFrame();
+            }
+        });
+        webView.postWebMessage(new WebMessage("classroom-bridge-screen", new WebMessagePort[] {ports[1]}),
+                Uri.parse(appUri.getScheme() + "://" + appUri.getAuthority()));
+        if (ScreenShareService.isRunning()) {
+            postToPage("{\"type\":\"share\",\"active\":true,\"reason\":\"reloaded\"}");
+            ScreenShareService.requestKeyFrame();
+        }
+    }
+
+    private void postToPage(String text) {
+        main.post(() -> {
+            if (sharePort != null) sharePort.postMessage(new WebMessage(text));
+        });
+    }
+
+    @Override
+    public void onShareFrame(byte[] data, boolean keyFrame) {
+        // "F1:" + key frame, "F0:" + any other frame; the page turns the text back into bytes.
+        postToPage((keyFrame ? "F1:" : "F0:") + Base64.encodeToString(data, Base64.NO_WRAP));
+    }
+
+    @Override
+    public void onShareState(boolean active, String reason, int width, int height) {
+        postToPage("{\"type\":\"share\",\"active\":" + active + ",\"reason\":\"" + reason + "\",\"width\":" + width
+                + ",\"height\":" + height + "}");
+        if (!active) main.post(() -> {
+            // Locked or stopped while Classroom Bridge was in the background: now it lets go of the PC as usual.
+            if (!hasWindowFocus() && webView != null) webView.onPause();
+        });
+    }
+
+    private void startScreenShare() {
+        if (ScreenShareService.isRunning()) return;
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            // Only so the "Stop sharing" notification shows; sharing works either way.
+            requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 5);
+        }
+        MediaProjectionManager manager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+        try {
+            startActivityForResult(manager.createScreenCaptureIntent(), SHARE_SCREEN);
+        } catch (ActivityNotFoundException error) {
+            onShareState(false, "unavailable", 0, 0);
+        }
     }
 
     @Override
@@ -245,6 +332,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        ScreenShareService.setSink(null);
+        stopService(new Intent(this, ScreenShareService.class));
+        if (sharePort != null) sharePort.close();
         for (Saving saving : savings.values()) saving.abandon();
         savings.clear();
         webView.destroy();
@@ -277,6 +367,27 @@ public class MainActivity extends Activity {
 
     /** What the web app can ask of the tablet (window.ClassroomBridgeAndroid). */
     private class Bridge {
+        /** Shows Android's "start sharing?" question; the answer arrives on the message channel. */
+        @JavascriptInterface
+        public void startScreenShare() {
+            runOnUiThread(MainActivity.this::startScreenShare);
+        }
+
+        @JavascriptInterface
+        public void stopScreenShare() {
+            runOnUiThread(() -> stopService(new Intent(MainActivity.this, ScreenShareService.class)));
+        }
+
+        @JavascriptInterface
+        public boolean isScreenSharing() {
+            return ScreenShareService.isRunning();
+        }
+
+        @JavascriptInterface
+        public boolean canShareScreen() {
+            return true;
+        }
+
         @JavascriptInterface
         public String beginSave(String name, String mime) {
             try {

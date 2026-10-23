@@ -315,15 +315,25 @@
         <section class="setup-card ipad-apps-card" role="dialog" aria-modal="true" aria-labelledby="mirror-prompt-title">
           <div class="setup-symbol">◉</div>
           <p class="eyebrow">Camera</p>
-          <h1 id="mirror-prompt-title">For the best picture, turn on Screen Mirroring</h1>
-          <p class="setup-copy">The projector then shows the camera at full AirPlay quality, with all your tools. Leave it on for the lesson: PC mode still shows the PC.</p>
-          <ol class="ipad-apps-steps">
-            <li>Swipe down from the top-right corner to open <strong>Control Centre</strong>.</li>
-            <li>Tap <strong>Screen Mirroring</strong> and choose <strong class="mirror-prompt-name">Classroom Bridge</strong>.</li>
-            <li>Come back to Classroom Bridge. It switches over by itself.</li>
-          </ol>
+          <h1 id="mirror-prompt-title"><span class="mirror-ios">For the best picture, turn on Screen Mirroring</span><span class="mirror-android">For the best picture, share this tablet's screen</span></h1>
+          <div class="mirror-ios">
+            <p class="setup-copy">The projector then shows the camera at full AirPlay quality, with all your tools. Leave it on for the lesson: PC mode still shows the PC.</p>
+            <ol class="ipad-apps-steps">
+              <li>Swipe down from the top-right corner to open <strong>Control Centre</strong>.</li>
+              <li>Tap <strong>Screen Mirroring</strong> and choose <strong class="mirror-prompt-name">Classroom Bridge</strong>.</li>
+              <li>Come back to Classroom Bridge. It switches over by itself.</li>
+            </ol>
+          </div>
+          <div class="mirror-android">
+            <p class="setup-copy">The projector then shows the camera at full quality, with all your tools. Leave it on for the lesson: PC mode still shows the PC, and any other app you open shows on the projector too.</p>
+            <ol class="ipad-apps-steps">
+              <li>Tap <strong>Share screen</strong> below.</li>
+              <li>If Android asks what to share, choose <strong>Entire screen</strong>, then <strong>Start</strong>.</li>
+            </ol>
+          </div>
+          <button id="mirror-prompt-share" class="primary connect-submit mirror-android" type="button">Share screen</button>
           <button id="mirror-prompt-standard" class="secondary connect-submit" type="button">Use standard quality this lesson</button>
-          <button id="mirror-prompt-done" class="primary connect-submit" type="button">OK</button>
+          <button id="mirror-prompt-done" class="primary connect-submit mirror-ios" type="button">OK</button>
         </section>
       </div>
 

@@ -63,9 +63,23 @@ iPads find AirPlay receivers with mDNS (Bonjour), which only reaches devices on 
 `android/` is a small Android app (Android 8 or later) that shows the same web app full screen. It adds what a browser
 tab lacks there: camera and microphone permission, the photo picker, saving photos and recordings (to Pictures or
 Movies › Classroom Bridge), the clipboard, and keeping the screen awake. Pairing links from the companion's QR code open
-in it. The web app says "tablet" instead of "iPad" on Android. It hides iPad apps, because AirPlay screen mirroring is
-Apple only, so the camera always uses the standard stream. Because the app loads the web app, web updates reach
+in it. The web app says "tablet" instead of "iPad" on Android. Because the app loads the web app, web updates reach
 tablets without reinstalling.
+
+**Screen sharing (the Android version of Screen Mirroring).** AirPlay is Apple only, so the app shares the screen
+itself:
+1. Android's screen capture feeds the tablet's hardware H.264 encoder (up to 1920 pixels, about 8 Mbit/s, 30 frames a
+   second; a still screen is re-sent so it sharpens).
+2. The page sends each frame to the companion on a `screen` data channel of the connection it already has, so there
+   is no extra firewall or network setup.
+3. The companion decodes it (`pc-companion/screen_mirror.py`) and shows it in the camera window.
+
+Everything else follows the AirPlay mirror's rules: shown in Camera mode and in any other app, hidden in PC mode, and
+the camera's own stream isn't sent while it is on. In Camera, the app offers **Share screen** (or standard quality);
+the bottom bar's **Share screen / Stop sharing** button replaces iPad apps. The teacher taps Start in Android's
+question (choosing **Entire screen** where Android asks), and a notification offers Stop sharing. Sharing keeps the
+connection while the teacher is in another app, and stops when the tablet locks. In Chrome on Android (without the
+app) the camera uses the standard stream.
 
 **Build Android app** (`.github/workflows/build-android-app.yml`) builds `ClassroomBridge-Android.apk` whenever
 `android/` changes. It publishes the APK to the downloads repository at a link that never changes:

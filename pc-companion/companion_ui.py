@@ -24,6 +24,7 @@ from agent import get_or_create_pairing_code, run, settings_dir
 from airplay import AirPlayReceiver, get_or_create_pin, receiver_name
 from desktop_overlay import DesktopInkOverlay
 from presenter import CameraPresenter
+from screen_mirror import ScreenMirror
 
 
 SIGNAL_URL = "wss://classroom-bridge.nathan-sant.workers.dev"
@@ -65,10 +66,13 @@ class CompanionWindow:
         self.airplay_messages = queue.Queue()
         self.airplay = AirPlayReceiver(self.airplay_messages.put)
         self.airplay.on_mirroring = lambda active: self.update_messages.put(("mirroring", active))
-        self.presenter.mirror_active = lambda: self.airplay.mirroring
         self.last_mirror_check = 0
         self.airplay_status = tk.StringVar(value="")
         self.update_messages = queue.Queue()
+        # An Android tablet's shared screen: the same job as the AirPlay mirror, shown in the camera window.
+        self.screen = ScreenMirror(self.presenter.handle, (root.winfo_screenwidth(), root.winfo_screenheight()),
+                                   lambda active: self.update_messages.put(("mirroring", active)))
+        self.presenter.mirror_active = self.mirroring
         self.available_update = None
         self.updating = False
         self.auto_update_failed = False
@@ -253,7 +257,7 @@ class CompanionWindow:
             try:
                 asyncio.run(run(SIGNAL_URL, pairing_code, self.messages.put, stop_event, self.queue_ink_command, self.presenter.handle,
                                 lambda connected: self.update_messages.put(("ipad", connected)), self.airplay.info,
-                                lambda: self.airplay.mirroring))
+                                self.mirroring, self.screen))
             except Exception as error:
                 problem = f"No connection ({str(error)[:70] or type(error).__name__})"
             if stop_event.is_set():
@@ -412,7 +416,7 @@ class CompanionWindow:
         if kind == "mirroring":
             if value and self.presenter.logged_kind == "show":
                 self.presenter.hide_full()  # the mirror takes over the camera
-            if not value:
+            if not value and not self.airplay.mirroring:
                 self.airplay.show_mirror(False)  # e.g. the iPad locked: don't leave its last frame on the projector
             self.apply_mirror_visibility()
             return
@@ -459,7 +463,7 @@ class CompanionWindow:
                 self.handle_update_message(*self.update_messages.get_nowait())
         except queue.Empty:
             pass
-        if self.airplay.mirroring and time.monotonic() - self.last_mirror_check > 0.5:
+        if self.mirroring() and time.monotonic() - self.last_mirror_check > 0.5:
             self.last_mirror_check = time.monotonic()
             self.apply_mirror_visibility()
         if single_instance.show_requested():
@@ -486,11 +490,16 @@ class CompanionWindow:
             self.install_update_if_quiet()
         self.root.after(100, self.poll_messages)
 
+    def mirroring(self):
+        """An iPad mirroring by AirPlay, or an Android tablet sharing its screen."""
+        return self.airplay.mirroring or self.screen.active
+
     def apply_mirror_visibility(self):
-        """While the iPad mirrors, the projector shows the mirror when the teacher is in another iPad app or in
-        Classroom Bridge's camera mode. In PC mode it shows the real desktop (the mirror would show the iPad showing
-        the desktop: a hall of mirrors), and for Blank the black camera window covers the screen instead."""
-        if not self.airplay.mirroring:
+        """While the iPad mirrors (or an Android tablet shares its screen), the projector shows the mirror when the
+        teacher is in another app or in Classroom Bridge's camera mode. In PC mode it shows the real desktop (the
+        mirror would show the tablet showing the desktop: a hall of mirrors), and for Blank the black camera window
+        covers the screen instead."""
+        if not self.mirroring():
             return
         in_app = self.ipad_connected and visualiser.ipad_app_visible
         if not in_app:
@@ -499,7 +508,10 @@ class CompanionWindow:
             visible = visualiser.current_app_mode == "camera" and visualiser.current_scene_mode != "blank"
         else:  # an older iPad app that doesn't say
             visible = visualiser.current_scene_mode in ("live", "photo", "hold")
-        self.airplay.show_mirror(visible)
+        if self.airplay.mirroring:
+            self.airplay.show_mirror(visible)
+        if self.screen.active:
+            self.screen.set_visible(visible)
 
     def show_log(self):
         """Opens the log folder with the log file selected, so it can be attached to an email."""

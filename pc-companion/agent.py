@@ -281,8 +281,9 @@ def perform_control(command, screen_width, screen_height):
 
 
 async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_view=None, on_peer=None, airplay_info=None,
-              mirroring_state=None):
-    """on_peer(connected) is told when an iPad connects or disconnects (the window updates only while none is)."""
+              mirroring_state=None, screen=None):
+    """on_peer(connected) is told when an iPad connects or disconnects (the window updates only while none is).
+    screen (screen_mirror.ScreenMirror) shows an Android tablet's shared screen."""
     on_peer = on_peer or (lambda connected: None)
     stop_event = stop_event or threading.Event()
     width, height = pyautogui.size()
@@ -328,6 +329,8 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                             return  # an earlier connection closing late mustn't undo the iPad that replaced it
                         on_peer(peer.connectionState == "connected")
                         if peer.connectionState in ("closed", "failed"):
+                            if screen:
+                                screen.reset()
                             ipad_gone(on_ink, on_view)
 
                     peer.on("connectionstatechange", connection_changed)
@@ -336,6 +339,23 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                     prefer_h264(peer)
                     channel = peer.createDataChannel("controls")
                     current_channel = channel
+                    if screen:
+                        screen.reset()  # a new connection: the tablet says again if it is sharing
+                        def ask_keyframe(channel=channel, loop=asyncio.get_running_loop()):
+                            # Asked from the decoding thread; the channel may only be used from this event loop.
+                            try:
+                                loop.call_soon_threadsafe(send_json, channel, {"type": "screen-keyframe"})
+                            except RuntimeError:
+                                pass  # the connection has ended
+
+                        screen.request_keyframe = ask_keyframe
+
+                        @peer.on("datachannel")
+                        def on_datachannel(incoming):
+                            # An Android tablet opens "screen" for its shared screen (screen_mirror.py).
+                            if incoming.label == "screen":
+                                log.info("tablet opened the shared-screen channel")
+                                incoming.on("message", screen.feed)
                     visualiser.ipad_app_visible = True
                     sent_mirroring = None
                     ink_channel = peer.createDataChannel("ink", ordered=True, maxRetransmits=0)
@@ -360,7 +380,7 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                         "screenWidth": width,
                         "screenHeight": height,
                     })))
-                    channel.on("message", lambda raw, scene=scene: handle_message(raw, width, height, channel, on_ink, scene, airplay_info))
+                    channel.on("message", lambda raw, scene=scene: handle_message(raw, width, height, channel, on_ink, scene, airplay_info, screen))
                     ink_channel.on("message", lambda raw, scene=scene: handle_message(raw, width, height, on_ink=on_ink, scene=scene))
                     pending_candidates.clear()
                     offer = await peer.createOffer()
@@ -398,6 +418,8 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
             await peer.close()
         if video_track:
             video_track.capture.close()
+        if screen:
+            screen.reset()
         if on_view:
             on_view({"type": "hide"})
         visualiser.current_scene_mode = None
@@ -438,7 +460,7 @@ def send_blob(channel, kind, data, meta):
     return True
 
 
-def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, airplay_info=None):
+def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, airplay_info=None, screen=None):
     command = None
     try:
         command = json.loads(raw)
@@ -450,6 +472,10 @@ def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, ai
             _frequent.add(kind, time.monotonic())
         else:
             log.info("from iPad: %s", diag.describe(command))
+        if kind == "screen-share":
+            if screen:
+                screen.set_active(command.get("active"), command.get("width"), command.get("height"))
+            return
         if kind == "app-visible":
             visualiser.ipad_app_visible = bool(command.get("visible", True))
             return
@@ -459,6 +485,8 @@ def handle_message(raw, width, height, channel=None, on_ink=None, scene=None, ai
             visualiser.ipad_app_visible = False
             if scene:
                 scene.set_scene({"type": "scene", "mode": "pc"})  # stop composing camera frames
+            if screen:
+                screen.reset()
             ipad_gone(on_ink, scene.show if scene else None)
             return
         if command.get("type") == "screenshot":

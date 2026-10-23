@@ -10,7 +10,8 @@ class CameraPresenter:
 
     Commands arrive from the networking thread; only the newest one is kept and it is drawn on the Tk thread:
     {"type": "show", "image": PIL.Image} | {"type": "pip", "image", "place"} | {"type": "blank"} |
-    {"type": "hide"}. Picture-in-picture is a small always-on-top window over whatever the PC is showing, wherever the
+    {"type": "hide"} | {"type": "mirror", "image"} (an Android tablet's shared screen, screen_mirror.py) |
+    {"type": "mirror-off"} (close the window if it is showing the shared screen). Picture-in-picture is a small always-on-top window over whatever the PC is showing, wherever the
     teacher put it on the iPad ("place": its centre as shares of the screen, or a corner from older iPads).
     """
 
@@ -35,6 +36,8 @@ class CameraPresenter:
 
     def handle(self, command):
         with self.lock:
+            if command.get("type") == "mirror-off" and self.pending is not None and self.pending.get("type") != "mirror":
+                return  # something else (Blank, picture-in-picture, the camera) is about to replace the mirror anyway
             self.pending = command
             if self.scheduled:
                 return
@@ -52,11 +55,16 @@ class CameraPresenter:
         if command is None:
             return
         kind = command.get("type")
+        previous = self.logged_kind
         if kind != self.logged_kind:
             self.logged_kind = kind
             logging.getLogger("projector").info("projector window: %s", kind)
         if kind == "hide":
             self.hide()
+            return
+        if kind == "mirror-off":
+            if previous == "mirror":
+                self.hide_full()
             return
         if kind == "show" and self.mirror_active():
             self.hide_full()

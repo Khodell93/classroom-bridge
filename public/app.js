@@ -307,6 +307,7 @@ async function connect() {
         reconnectTimer = undefined;
         sendControl({ type: "screen-zoom", zoom: hostZoomStep });
         setStatus("PC connected", true);
+        androidConnectionOpened();
         requestScreenWakeLock();
       };
       controlChannel.onclose = () => {
@@ -403,10 +404,11 @@ async function requestScreenWakeLock() {
 }
 
 function scheduleReconnect(delay = 1500) {
-  if (!sessionActive || document.hidden || reconnectTimer) return;
+  // In the background it waits to reconnect until reopened, unless an Android tablet is sharing its screen.
+  if (!sessionActive || (document.hidden && !androidKeepsConnection()) || reconnectTimer) return;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = undefined;
-    if (!sessionActive || document.hidden) return;
+    if (!sessionActive || (document.hidden && !androidKeepsConnection())) return;
     if (peerConnection?.connectionState === "connected" && controlChannel?.readyState === "open") return;
     codeInput.value = activePairingCode;
     connect();
@@ -580,6 +582,10 @@ function clipboardMessage(event) {
     document.querySelector('[data-shortcut="win+e"]').textContent = hostPlatform === "macos" ? "Open Finder" : "Win+E · Files";
     document.querySelector('[data-shortcut="alt+tab"]').textContent = hostPlatform === "macos" ? "⌘+Tab" : "Alt+Tab";
     document.querySelector("#open-explorer strong").textContent = hostPlatform === "macos" ? "Open Finder" : "File Explorer";
+    return;
+  }
+  if (message.type === "screen-keyframe") {
+    androidScreenKeyFrame();
     return;
   }
   if (message.type === "mirroring") {
@@ -1072,6 +1078,21 @@ document.querySelector("#pc-keyboard").addEventListener("click", () => {
   remoteTypingInput.focus({ preventScroll: true });
 });
 document.addEventListener("visibilitychange", () => {
+  if (document.hidden && androidKeepsConnection()) {
+    // An Android tablet sharing its screen: the teacher went to another app to show it, so stay connected and let
+    // the PC show the mirror (android.js).
+    androidShare.keptConnection = true;
+    sendControl({ type: "app-visible", visible: false });
+    return;
+  }
+  if (!document.hidden && androidShare.keptConnection) {
+    androidShare.keptConnection = false;
+    sendControl({ type: "app-visible", visible: true });
+    if (sessionActive && peerConnection?.connectionState !== "connected") {
+      codeInput.value = activePairingCode;
+      connect();
+    }
+  }
   if (document.hidden) {
     wasBackgrounded = true;
     // Locked, or the teacher went to another iPad app: disconnect completely, so the PC goes back to normal (camera
