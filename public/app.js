@@ -52,6 +52,7 @@ const activeTouches = new Map();
 const suppressedTouches = new Set();
 
 function setStatus(label, connected = false) {
+  label = deviceWords(label);
   if (statusEl.querySelector("span").textContent !== label) diag("conn", label);
   statusEl.querySelector("span").textContent = label;
   statusEl.classList.toggle("connected", connected);
@@ -538,6 +539,12 @@ async function pasteIpadClipboard() {
     message.textContent = "Connect to the PC first.";
     return;
   }
+  if (androidApp) {
+    const text = androidApp.readClipboard();
+    if (!text) message.textContent = "The tablet clipboard is empty.";
+    else if (sendControl({ type: "paste", text: text.slice(0, 20000) })) message.textContent = "Pasted the tablet clipboard into the active PC app.";
+    return;
+  }
   if (!navigator.clipboard?.readText) {
     message.textContent = "Clipboard access is unavailable in this browser. Try pasting into the typing box instead.";
     return;
@@ -687,8 +694,9 @@ document.querySelector("#request-pc-clipboard").addEventListener("click", () => 
 document.querySelector("#copy-to-ipad").addEventListener("click", async () => {
   const text = document.querySelector("#clipboard-preview").value;
   try {
-    await navigator.clipboard.writeText(text);
-    document.querySelector("#clipboard-message").textContent = "Copied to the iPad clipboard.";
+    if (androidApp) androidApp.writeClipboard(text);
+    else await navigator.clipboard.writeText(text);
+    document.querySelector("#clipboard-message").textContent = deviceWords("Copied to the iPad clipboard.");
   } catch {
     document.querySelector("#clipboard-message").textContent = "Safari blocked clipboard access. You can select the text above and copy it manually.";
   }

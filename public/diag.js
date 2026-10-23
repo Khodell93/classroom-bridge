@@ -87,6 +87,7 @@ window.addEventListener("pagehide", () => {
     }
   } catch {}
   const standalone = window.navigator.standalone || window.matchMedia?.("(display-mode: standalone)").matches;
-  diag("app", `opened (${standalone ? "Home Screen app" : "Safari"}) ${navigator.userAgent} · screen ${screen.width}×${screen.height} @${window.devicePixelRatio}x`);
+  const kind = typeof androidApp !== "undefined" && androidApp ? "Android app" : standalone ? "Home Screen app" : "browser";
+  diag("app", `opened (${kind}) ${navigator.userAgent} · screen ${screen.width}×${screen.height} @${window.devicePixelRatio}x`);
   window.setInterval(diagFlush, 2000);
 })();

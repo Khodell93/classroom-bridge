@@ -58,6 +58,26 @@ iPads find AirPlay receivers with mDNS (Bonjour), which only reaches devices on 
 - **The iPad must still be able to reach the PC's address** (TCP 7000, 7001, 7100 and UDP 6000, 6001, 7011). The **iPad apps** panel's last check shows this: if the iPad and PC "only reach each other through the internet", the network is keeping them apart and IT needs to allow it.
 - **For IT:** add the classroom PCs to the AirPlay/Bonjour gateway the way the Apple TVs are, or allow traffic from the iPad network to the PCs on those ports. The MSI's firewall rule for the receiver accepts connections from any address (not only the PC's own subnet) for this reason; connections still need the receiver's PIN.
 
+## Android tablets
+
+`android/` is a small Android app (Android 8 or later) that shows the same web app full screen. It adds what a browser
+tab lacks there: camera and microphone permission, the photo picker, saving photos and recordings (to Pictures or
+Movies › Classroom Bridge), the clipboard, and keeping the screen awake. Pairing links from the companion's QR code open
+in it. The web app says "tablet" instead of "iPad" on Android. It hides iPad apps, because AirPlay screen mirroring is
+Apple only, so the camera always uses the standard stream. Because the app loads the web app, web updates reach
+tablets without reinstalling.
+
+**Build Android app** (`.github/workflows/build-android-app.yml`) builds `ClassroomBridge-Android.apk` whenever
+`android/` changes. It publishes the APK to the downloads repository at a link that never changes:
+https://github.com/Khodell93/classroom-bridge-downloads/releases/download/android/ClassroomBridge-Android.apk.
+Teachers open the link on the tablet and allow installing from the browser when Android asks. Managed tablets usually
+need IT to allow it or push the APK through their device management.
+
+Signing is free (a self-made key, no Google account needed), but every version must be signed with the **same** key,
+or tablets refuse it as an update. Keep the key private and backed up. Add it as two repository secrets:
+`ANDROID_KEYSTORE_BASE64` (the keystore file, base64-encoded) and `ANDROID_KEYSTORE_PASSWORD`. Without them, builds use
+a throwaway key and aren't published.
+
 ## Teacher setup
 
 Teachers should use the packaged Windows application, not Python or PowerShell. Open `ClassroomBridge.exe`, choose **Start companion**, and enter the displayed code in Classroom Bridge on the iPad. Keep the PC window open for the lesson and choose **Stop** when finished.

@@ -12,7 +12,8 @@ const mirrorMode = { active: false, lastActivity: 0, revealPointer: null, standa
 // Classroom Bridge shows the two taps (once per lesson, then a small reminder pill), unless the teacher chooses the
 // standard stream for this lesson.
 function mirrorPromptApplies() {
-  return currentMode === "camera" && !mirrorMode.active && hostPlatform !== "macos" && controlChannel?.readyState === "open";
+  // Screen Mirroring here is AirPlay, which Android tablets don't have: their camera uses the standard stream.
+  return currentMode === "camera" && !mirrorMode.active && !ANDROID_DEVICE && hostPlatform !== "macos" && controlChannel?.readyState === "open";
 }
 
 function updateMirrorPrompt() {

@@ -194,7 +194,7 @@ async function makeThumbnail(blob) {
 let toastTimer;
 function showToast(message, seconds = 3.5) {
   const toast = document.querySelector("#vis-toast");
-  toast.textContent = message;
+  toast.textContent = deviceWords(message);
   toast.hidden = false;
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => { toast.hidden = true; }, seconds * 1000);
@@ -1052,6 +1052,10 @@ async function prepareExport(photo) {
 
 // Opens the share sheet for a ready file (Save Image / Save to Files / AirDrop), or downloads it.
 async function shareFile(file) {
+  if (androidApp) {
+    if (!await androidSaveFile(file)) showToast("Couldn't save it on this tablet. Check its storage.");
+    return;
+  }
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });

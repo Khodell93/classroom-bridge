@@ -1,0 +1,48 @@
+plugins {
+    id "com.android.application"
+}
+
+// Release signing comes from the environment (CI secrets, see README); without it the APK is signed with the
+// debug key, which is fine for trying it out but can't later be updated by a properly signed APK.
+def keystorePath = System.getenv("ANDROID_KEYSTORE_FILE")
+
+android {
+    namespace "uk.classroombridge.app"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "uk.classroombridge.app"
+        minSdk 26
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv("ANDROID_VERSION_CODE") ?: "1")
+        versionName System.getenv("ANDROID_VERSION_NAME") ?: "1.0"
+        buildConfigField "String", "APP_URL", "\"${System.getenv("CLASSROOM_BRIDGE_URL") ?: "https://classroom-bridge.nathan-sant.workers.dev/"}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "classroom-bridge"
+                keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystorePath ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

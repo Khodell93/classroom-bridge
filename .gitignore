@@ -10,3 +10,7 @@ pc-companion/dist/
 .DS_Store
 pc-companion/version.txt
 installer/airplay-files.wxs
+android/local.properties
+android/.gradle/
+android/app/build/
+android/build/
