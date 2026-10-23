@@ -66,7 +66,9 @@ def apply_lan_bitrate_floor():
 
 apply_lan_bitrate_floor()
 
-pyautogui.FAILSAFE = True
+# pyautogui's fail-safe stops every command while the pointer sits in a screen corner, so one tap on Start or a
+# window's close button would leave the iPad unable to move the mouse. The teacher can always stop the companion.
+pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0
 ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _screen_zoom_level = 1
@@ -318,8 +320,12 @@ async def run(signal_url, room, notify=print, stop_event=None, on_ink=None, on_v
                         if video_track:
                             video_track.capture.close()
                     peer = RTCPeerConnection()
+                    current_peer = peer
+
                     def connection_changed(peer=peer):
                         log.info("iPad connection: %s (ice %s)", peer.connectionState, peer.iceConnectionState)
+                        if peer is not current_peer:
+                            return  # an earlier connection closing late mustn't undo the iPad that replaced it
                         on_peer(peer.connectionState == "connected")
                         if peer.connectionState in ("closed", "failed"):
                             ipad_gone(on_ink, on_view)
