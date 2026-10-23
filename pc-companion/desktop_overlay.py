@@ -27,7 +27,6 @@ class DesktopInkOverlay:
             raise RuntimeError("Desktop ink overlay is supported on macOS and Windows.")
 
     def _init_windows(self, root):
-        import ctypes
         import tkinter as tk
 
         self.tk = tk
@@ -41,11 +40,20 @@ class DesktopInkOverlay:
         self.canvas.pack(fill="both", expand=True)
         self.window.withdraw()
         self.window.update_idletasks()
-        window_handle = self.window.winfo_id()
-        get_window_long = ctypes.windll.user32.GetWindowLongW
-        get_window_long.restype = ctypes.c_long
-        style = get_window_long(window_handle, -20)
-        ctypes.windll.user32.SetWindowLongW(window_handle, -20, style | 0x00080000 | 0x00000020 | 0x00000080)
+        self._make_click_through()
+
+    def _make_click_through(self):
+        """Clicks and the PC's own mouse go straight through the ink, to whatever is underneath."""
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        user32.GetAncestor.restype = ctypes.c_void_p
+        user32.GetWindowLongW.restype = ctypes.c_long
+        # winfo_id() is Tk's inner window; the styles must go on the top-level window that Windows hit-tests.
+        window_handle = user32.GetAncestor(ctypes.c_void_p(self.window.winfo_id()), 2) or self.window.winfo_id()  # GA_ROOT
+        style = user32.GetWindowLongW(ctypes.c_void_p(window_handle), -20)
+        # WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+        user32.SetWindowLongW(ctypes.c_void_p(window_handle), -20, style | 0x00080000 | 0x00000020 | 0x00000080 | 0x08000000)
 
     def _init_macos(self):
         import AppKit
@@ -116,6 +124,9 @@ class DesktopInkOverlay:
                 self.view.setNeedsDisplay_(True)
             else:
                 self.canvas.delete("ink")
+                if self.visible:
+                    self.window.withdraw()
+                    self.visible = False
 
     def _show(self):
         if not self.visible:
@@ -125,6 +136,7 @@ class DesktopInkOverlay:
             else:
                 self.window.deiconify()
                 self.window.lift()
+                self._make_click_through()
         self.view.setNeedsDisplay_(True) if sys.platform == "darwin" else None
 
     def _draw_segment(self, stroke, start, end):

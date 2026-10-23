@@ -372,14 +372,14 @@ def set_window_shown(hwnd, visible):
     """Returns True if the window had to change."""
     user32 = ctypes.windll.user32
     if bool(user32.IsWindowVisible(hwnd)) == visible:
-        if visible:  # keep it above other windows (e.g. after the teacher clicked the desktop)
-            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # HWND_TOPMOST, NOSIZE|NOMOVE|NOACTIVATE
-        return False
+        return False  # already right; never fight the teacher's own mouse and windows
     if visible:
+        # Topmost for a moment brings it to the front even from a background app; then it's a normal window
+        # again, so the PC's mouse, taskbar and Alt+Tab still work.
         user32.ShowWindow(hwnd, 5)  # SW_SHOW
         user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)  # HWND_TOPMOST, NOSIZE|NOMOVE|SHOWWINDOW
         user32.SetForegroundWindow(hwnd)
+        user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # HWND_NOTOPMOST, NOACTIVATE
     else:
-        user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # HWND_NOTOPMOST
         user32.ShowWindow(hwnd, 0)  # SW_HIDE
     return True

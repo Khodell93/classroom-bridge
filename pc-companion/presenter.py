@@ -84,14 +84,34 @@ class CameraPresenter:
         self.window.title("Classroom Bridge — Visualiser")
         self.window.configure(bg="black", cursor="none")
         self.window.attributes("-fullscreen", True)
-        # Always on top while it shows: Windows won't let a background app bring a new window to the front, so
-        # the first time the camera opened it appeared behind the teacher's windows. The iPad closes it again.
-        self.window.attributes("-topmost", True)
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
-        self.label = tk.Label(self.window, bg="black", borderwidth=0, highlightthickness=0)
+        self.label = tk.Label(self.window, bg="black", borderwidth=0, highlightthickness=0, cursor="none")
         self.label.pack(fill="both", expand=True)
+        # Windows won't let a background app bring a new window to the front, so it is made topmost for a moment
+        # (which always works) and then a normal window again: the PC's own mouse and Alt+Tab keep working.
+        self.window.attributes("-topmost", True)
         self.window.lift()
         self.window.focus_force()
+        self.window.after(400, lambda window=self.window: window.winfo_exists() and window.attributes("-topmost", False))
+        # The pointer appears when the real mouse moves and hides again after 3 s; Esc closes the window.
+        self.window.bind("<Motion>", self.pointer_moved)
+        self.window.bind("<Escape>", lambda event: self.hide())
+        self.pointer_timer = None
+
+    def pointer_moved(self, event=None):
+        if self.window is None:
+            return
+        for widget in (self.window, self.label):
+            widget.configure(cursor="")
+        if self.pointer_timer is not None:
+            self.window.after_cancel(self.pointer_timer)
+        self.pointer_timer = self.window.after(3000, self.hide_pointer)
+
+    def hide_pointer(self):
+        self.pointer_timer = None
+        if self.window is not None:
+            for widget in (self.window, self.label):
+                widget.configure(cursor="none")
 
     def show_pip(self, image, corner):
         if self.pip_window is None:
