@@ -314,7 +314,7 @@ def apply_adjust(image, adjust):
 class VisualiserScene:
     def __init__(self, screen_size, show, reply, send_media=None):
         self.screen_size = screen_size
-        # presenter callback: {"type": "show", "image"} | {"type": "pip", "image", "corner"} | {"type": "blank"} | {"type": "hide"}
+        # presenter callback: {"type": "show", "image"} | {"type": "pip", "image", "place"} | {"type": "blank"} | {"type": "hide"}
         self.show = show
         self.reply = reply        # sends a dict to the iPad on the control channel
         self.send_media = send_media  # sends a blob (kind, bytes, meta) to the iPad on the media channel
@@ -370,8 +370,13 @@ class VisualiserScene:
             self.adjust = clean_adjust(message.get("adjust"))
             self.spotlight = clean_spotlight(message.get("spotlight"))
             self.curtain = clean_curtain(message.get("curtain"))
-            corner = message.get("corner") if message.get("corner") in ("tl", "tr", "bl", "br") else "br"
-            self.pip = (corner, clamp(message.get("size"), 0.15, 0.6, 0.32))
+            # Where the picture-in-picture camera goes: its centre (x, y as shares of the screen) or, from iPads older
+            # than free positioning, a corner. size is its width as a share of the screen's width.
+            if "x" in message and "y" in message:
+                place = (clamp(message.get("x"), 0.0, 1.0, 0.5), clamp(message.get("y"), 0.0, 1.0, 0.5))
+            else:
+                place = message.get("corner") if message.get("corner") in ("tl", "tr", "bl", "br") else "br"
+            self.pip = (place, clamp(message.get("size"), 0.1, 0.8, 0.32))
             self.provisional = {}
             self.shape = None
             self.layers = None
@@ -507,8 +512,8 @@ class VisualiserScene:
         rotation = self.rotation
         width, height = (frame.height, frame.width) if rotation in (90, 270) else (frame.width, frame.height)
         pip = self.mode == "pip"
-        corner, share = self.pip
-        bounds = (self.screen_size[0] * share, self.screen_size[1] * share) if pip else self.screen_size
+        place, share = self.pip
+        bounds = (self.screen_size[0] * share, self.screen_size[1] * (share if isinstance(place, str) else 0.95)) if pip else self.screen_size
         target = fit_size(width, height, *bounds)
         source = (target[1], target[0]) if rotation in (90, 270) else target
         image = frame.reformat(width=source[0], height=source[1], format="rgb24").to_image()
@@ -517,7 +522,7 @@ class VisualiserScene:
         image = apply_adjust(image, self.adjust)
         with self.lock:
             if self.mode == "pip" and pip:
-                self.show({"type": "pip", "image": image, "corner": corner})
+                self.show({"type": "pip", "image": image, "place": place})
                 return
             if self.mode != "live" or pip:
                 return

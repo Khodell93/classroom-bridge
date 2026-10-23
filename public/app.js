@@ -412,31 +412,37 @@ function scheduleReconnect(delay = 1500) {
   }, delay);
 }
 
-function desktopPoint(event) {
+// Where the PC's desktop appears on the iPad, in screen pixels (allowing for the letterbox, zoom and pan).
+function desktopRect() {
   const bounds = pcStage.getBoundingClientRect();
-  const stageX = bounds.left + (event.clientX - bounds.left - pcPanX) / pcZoom;
-  const stageY = bounds.top + (event.clientY - bounds.top - pcPanY) / pcZoom;
   const streamAspect = 16 / 9;
   const stageAspect = bounds.width / bounds.height;
   const streamWidth = stageAspect > streamAspect ? bounds.height * streamAspect : bounds.width;
   const streamHeight = stageAspect > streamAspect ? bounds.height : bounds.width / streamAspect;
-  const streamLeft = bounds.left + (bounds.width - streamWidth) / 2;
-  const streamTop = bounds.top + (bounds.height - streamHeight) / 2;
-  const streamX = Math.max(0, Math.min(1, (stageX - streamLeft) / streamWidth));
-  const streamY = Math.max(0, Math.min(1, (stageY - streamTop) / streamHeight));
   const desktopAspect = hostScreenWidth / hostScreenHeight;
-  const desktopWidth = desktopAspect > streamAspect ? 1 : desktopAspect / streamAspect;
-  const desktopHeight = desktopAspect > streamAspect ? streamAspect / desktopAspect : 1;
-  const desktopLeft = (1 - desktopWidth) / 2;
-  const desktopTop = (1 - desktopHeight) / 2;
+  const width = (desktopAspect > streamAspect ? 1 : desktopAspect / streamAspect) * streamWidth;
+  const height = (desktopAspect > streamAspect ? streamAspect / desktopAspect : 1) * streamHeight;
+  const left = (bounds.width - width) / 2;
+  const top = (bounds.height - height) / 2;
   return {
-    x: Math.max(0, Math.min(1, (streamX - desktopLeft) / desktopWidth)),
-    y: Math.max(0, Math.min(1, (streamY - desktopTop) / desktopHeight)),
+    left: bounds.left + pcPanX + left * pcZoom,
+    top: bounds.top + pcPanY + top * pcZoom,
+    width: width * pcZoom,
+    height: height * pcZoom,
+  };
+}
+
+function desktopPoint(event) {
+  const rect = desktopRect();
+  return {
+    x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+    y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
   };
 }
 
 function applyPcZoom() {
   pcScreen.style.transform = `translate3d(${pcPanX}px, ${pcPanY}px, 0) scale(${pcZoom})`;
+  if (typeof positionPip === "function") positionPip();
   document.querySelector("#zoom-reset").hidden = currentMode !== "pc" || pcZoom <= 1.01;
 }
 

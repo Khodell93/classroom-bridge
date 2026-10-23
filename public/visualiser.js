@@ -49,7 +49,7 @@ const visualiser = {
   hold: false,
   spotlight: null,       // { x, y, r } in image coordinates
   curtain: null,         // { reveal } fraction shown from the top
-  pip: null,             // { corner, size } picture-in-picture camera over the PC screen (PC mode)
+  pip: null,             // { x, y, size } picture-in-picture camera over the PC screen (PC mode; pc-tools.js)
   active: null,          // stroke or shape being drawn
   activePointer: undefined,
   erasing: null,
@@ -603,7 +603,9 @@ function sceneMessage() {
 function projectorScene() {
   if (currentMode !== "camera") {
     if (visualiser.pip && cameraView === "live") {
-      return { type: "scene", mode: "pip", corner: visualiser.pip.corner, size: visualiser.pip.size, rotation: visualiser.liveRotation, adjust: visualiser.liveAdjust };
+      const { x, y, size } = visualiser.pip;
+      // corner is for companions older than free positioning.
+      return { type: "scene", mode: "pip", x, y, size, corner: nearestPipCorner(visualiser.pip), rotation: visualiser.liveRotation, adjust: visualiser.liveAdjust };
     }
     return { type: "scene", mode: "pc" };
   }

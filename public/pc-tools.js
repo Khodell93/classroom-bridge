@@ -8,7 +8,11 @@ const pcTools = {
   incoming: null,     // blob being received from the PC
 };
 const PIP_CORNERS = ["br", "bl", "tl", "tr"];
-const PIP_SIZES = [0.22, 0.32, 0.45];
+const PIP_PLACE_KEY = "classroom-bridge-pip-place";
+const PIP_MIN_SIZE = 0.12;  // share of the PC screen's width
+const PIP_MAX_SIZE = 0.8;
+const PIP_MARGIN = 0.02;    // corners and snapping keep this far from the screen edge
+const PIP_SNAP = 0.03;      // a camera dropped this close to an edge snaps to it
 
 // ---------- Pairing by QR code ----------
 
@@ -160,34 +164,116 @@ function screenshotFailed(message) {
 }
 
 // ---------- Picture-in-picture camera over the PC screen ----------
+// The camera box on the iPad sits exactly where the camera appears on the PC screen. Drag it anywhere; resize it with
+// the corner handle or a pinch; ↻ sends it to the next corner. Position is the box's centre as a share of the PC
+// screen (x, y), size its width as a share of the screen's width.
+
+const pipGesture = { pointers: new Map(), start: null, sendTimer: null };
 
 function pipActive() {
   return Boolean(visualiser.pip);
+}
+
+function storedPipPlace() {
+  try {
+    const place = JSON.parse(readStoredValue(PIP_PLACE_KEY) || "null");
+    if (place && [place.x, place.y, place.size].every(Number.isFinite)) return place;
+  } catch {}
+  // Earlier versions remembered a corner and a size.
+  const size = Number(readStoredValue("classroom-bridge-pip-size")) || 0.32;
+  return { ...pipCornerPlace(readStoredValue("classroom-bridge-pip-corner") || "br", size), size };
+}
+
+// The camera's height as a share of the PC screen's height, for a given width share.
+function pipHeightShare(size) {
+  const video = document.querySelector("#pc-pip-video");
+  let aspect = video.videoWidth && video.videoHeight ? video.videoHeight / video.videoWidth : 9 / 16;
+  if (visualiser.liveRotation % 180) aspect = 1 / aspect;
+  return size * aspect * hostScreenWidth / hostScreenHeight;
+}
+
+function pipCornerPlace(corner, size) {
+  const halfWidth = size / 2;
+  const halfHeight = pipHeightShare(size) / 2;
+  return {
+    x: corner.endsWith("l") ? PIP_MARGIN + halfWidth : 1 - PIP_MARGIN - halfWidth,
+    y: corner.startsWith("t") ? PIP_MARGIN + halfHeight : 1 - PIP_MARGIN - halfHeight,
+  };
+}
+
+function nearestPipCorner(pip) {
+  return `${pip.y < 0.5 ? "t" : "b"}${pip.x < 0.5 ? "l" : "r"}`;
+}
+
+// Keeps the whole camera on the PC screen.
+function clampPip(pip, snap = false) {
+  const size = Math.max(PIP_MIN_SIZE, Math.min(PIP_MAX_SIZE, pip.size));
+  const halfWidth = size / 2;
+  const halfHeight = Math.min(0.5, pipHeightShare(size) / 2);
+  let x = Math.max(halfWidth, Math.min(1 - halfWidth, pip.x));
+  let y = Math.max(halfHeight, Math.min(1 - halfHeight, pip.y));
+  if (snap) {
+    if (x - halfWidth < PIP_SNAP) x = Math.min(0.5, PIP_MARGIN + halfWidth);
+    if (1 - x - halfWidth < PIP_SNAP) x = Math.max(0.5, 1 - PIP_MARGIN - halfWidth);
+    if (y - halfHeight < PIP_SNAP) y = Math.min(0.5, PIP_MARGIN + halfHeight);
+    if (1 - y - halfHeight < PIP_SNAP) y = Math.max(0.5, 1 - PIP_MARGIN - halfHeight);
+  }
+  return { x, y, size };
 }
 
 async function togglePip() {
   if (visualiser.pip) {
     visualiser.pip = null;
   } else {
-    visualiser.pip = { corner: readStoredValue("classroom-bridge-pip-corner") || "br", size: Number(readStoredValue("classroom-bridge-pip-size")) || 0.32 };
+    visualiser.pip = clampPip(storedPipPlace());
     if (cameraView !== "live") await openCamera();
   }
   updatePipControls();
   syncScene();
 }
 
-function cyclePip(key) {
+function nextPipCorner() {
   if (!visualiser.pip) return;
-  if (key === "corner") {
-    visualiser.pip.corner = PIP_CORNERS[(PIP_CORNERS.indexOf(visualiser.pip.corner) + 1) % PIP_CORNERS.length];
-    writeStoredValue("classroom-bridge-pip-corner", visualiser.pip.corner);
-  } else {
-    const index = PIP_SIZES.findIndex(size => Math.abs(size - visualiser.pip.size) < 0.01);
-    visualiser.pip.size = PIP_SIZES[(index + 1) % PIP_SIZES.length];
-    writeStoredValue("classroom-bridge-pip-size", String(visualiser.pip.size));
+  const corner = PIP_CORNERS[(PIP_CORNERS.indexOf(nearestPipCorner(visualiser.pip)) + 1) % PIP_CORNERS.length];
+  setPipPlace({ ...pipCornerPlace(corner, visualiser.pip.size), size: visualiser.pip.size }, true);
+}
+
+function setPipPlace(place, final) {
+  visualiser.pip = clampPip(place, final);
+  positionPip();
+  if (final) {
+    window.clearTimeout(pipGesture.sendTimer);
+    pipGesture.sendTimer = null;
+    writeStoredValue(PIP_PLACE_KEY, JSON.stringify(visualiser.pip));
+    syncScene();
+  } else if (!pipGesture.sendTimer) {
+    // While dragging, the PC follows about 12 times a second.
+    pipGesture.sendTimer = window.setTimeout(() => {
+      pipGesture.sendTimer = null;
+      syncScene();
+    }, 80);
   }
-  updatePipControls();
-  syncScene();
+}
+
+function positionPip() {
+  const panel = document.querySelector("#pc-pip-panel");
+  if (!visualiser.pip || panel.hidden) return;
+  const rect = desktopRect();
+  const stage = pcStage.getBoundingClientRect();
+  const width = visualiser.pip.size * rect.width;
+  const height = pipHeightShare(visualiser.pip.size) * rect.height;
+  panel.style.width = `${width}px`;
+  panel.style.height = `${height}px`;
+  panel.style.left = `${rect.left - stage.left + visualiser.pip.x * rect.width - width / 2}px`;
+  panel.style.top = `${rect.top - stage.top + visualiser.pip.y * rect.height - height / 2}px`;
+  // A camera turned on its side: the video is laid out the other way round, then rotated into the box.
+  const video = document.querySelector("#pc-pip-video");
+  const sideways = visualiser.liveRotation % 180 !== 0;
+  const inner = { width: width - 6, height: height - 6 }; // inside the 3 px border
+  video.style.width = `${sideways ? inner.height : inner.width}px`;
+  video.style.height = `${sideways ? inner.width : inner.height}px`;
+  video.style.marginLeft = sideways ? `${(inner.width - inner.height) / 2}px` : "";
+  video.style.marginTop = sideways ? `${(inner.height - inner.width) / 2}px` : "";
 }
 
 function updatePipControls() {
@@ -200,13 +286,82 @@ function updatePipControls() {
     video.srcObject = null;
     return;
   }
-  panel.dataset.corner = visualiser.pip.corner;
-  panel.style.width = `${Math.round(visualiser.pip.size * 100)}%`;
   if (cameraStream && video.srcObject !== cameraStream) video.srcObject = cameraStream;
   video.style.transform = visualiser.liveRotation ? `rotate(${visualiser.liveRotation}deg)` : "";
   video.style.filter = adjustFilter(visualiser.liveAdjust);
   video.play().catch(() => {});
-  document.querySelector("#pc-pip-size").textContent = ["S", "M", "L"][PIP_SIZES.findIndex(size => Math.abs(size - visualiser.pip.size) < 0.01)] ?? "M";
+  positionPip();
+}
+
+function pipPointerDown(event) {
+  if (event.target.closest("button")) return;
+  // The camera box handles its own touches: they must not also move or click the PC's mouse.
+  event.stopPropagation();
+  event.preventDefault();
+  if (rejectDrawPointer(event)) return; // a resting hand doesn't move it
+  const panel = document.querySelector("#pc-pip-panel");
+  panel.setPointerCapture(event.pointerId);
+  pipGesture.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  pipGestureStart(event.target.closest(".pc-pip-resize") ? "resize" : null);
+}
+
+function pipGestureStart(kind) {
+  const points = [...pipGesture.pointers.values()];
+  const rect = desktopRect();
+  pipGesture.start = {
+    kind: points.length >= 2 ? "pinch" : kind || "move",
+    pip: { ...visualiser.pip },
+    rect,
+    points: points.map(point => ({ ...point })),
+    distance: points.length >= 2 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0,
+  };
+}
+
+function pipPointerMove(event) {
+  event.stopPropagation(); // even a hovering Pencil over the box doesn't move the PC's mouse
+  if (!pipGesture.pointers.has(event.pointerId)) return;
+  event.preventDefault();
+  pipGesture.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  const start = pipGesture.start;
+  const points = [...pipGesture.pointers.values()];
+  if (start.kind === "pinch" && points.length >= 2) {
+    const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    const middle = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+    const startMiddle = { x: (start.points[0].x + start.points[1].x) / 2, y: (start.points[0].y + start.points[1].y) / 2 };
+    setPipPlace({
+      size: start.pip.size * distance / Math.max(20, start.distance),
+      x: start.pip.x + (middle.x - startMiddle.x) / start.rect.width,
+      y: start.pip.y + (middle.y - startMiddle.y) / start.rect.height,
+    }, false);
+  } else if (start.kind === "resize") {
+    // The handle is the bottom-right corner; the top-left corner stays put.
+    const dx = (points[0].x - start.points[0].x) / start.rect.width;
+    const dy = (points[0].y - start.points[0].y) / start.rect.height;
+    const startHeight = pipHeightShare(start.pip.size);
+    const grow = Math.max(dx, dy * start.pip.size / startHeight);
+    const size = Math.max(PIP_MIN_SIZE, Math.min(PIP_MAX_SIZE, start.pip.size + grow));
+    const left = start.pip.x - start.pip.size / 2;
+    const top = start.pip.y - startHeight / 2;
+    setPipPlace({ size, x: left + size / 2, y: top + pipHeightShare(size) / 2 }, false);
+  } else if (start.kind === "move") {
+    setPipPlace({
+      size: start.pip.size,
+      x: start.pip.x + (points[0].x - start.points[0].x) / start.rect.width,
+      y: start.pip.y + (points[0].y - start.points[0].y) / start.rect.height,
+    }, false);
+  }
+}
+
+function pipPointerUp(event) {
+  if (!pipGesture.pointers.has(event.pointerId)) return;
+  event.stopPropagation();
+  pipGesture.pointers.delete(event.pointerId);
+  if (pipGesture.pointers.size) {
+    pipGestureStart("move"); // one finger of a pinch lifted: carry on moving with the other
+    return;
+  }
+  pipGesture.start = null;
+  if (visualiser.pip) setPipPlace(visualiser.pip, true);
 }
 
 function initPcTools() {
@@ -214,9 +369,15 @@ function initPcTools() {
   document.querySelector("#qr-cancel").addEventListener("click", closeQrScanner);
   document.querySelector("#pc-capture").addEventListener("click", requestScreenshot);
   document.querySelector("#pc-pip").addEventListener("click", togglePip);
-  document.querySelector("#pc-pip-corner").addEventListener("click", () => cyclePip("corner"));
-  document.querySelector("#pc-pip-size").addEventListener("click", () => cyclePip("size"));
+  document.querySelector("#pc-pip-corner").addEventListener("click", nextPipCorner);
   document.querySelector("#pc-pip-close").addEventListener("click", togglePip);
+  const pipPanel = document.querySelector("#pc-pip-panel");
+  pipPanel.addEventListener("pointerdown", pipPointerDown);
+  pipPanel.addEventListener("pointermove", pipPointerMove);
+  pipPanel.addEventListener("pointerup", pipPointerUp);
+  pipPanel.addEventListener("pointercancel", pipPointerUp);
+  document.querySelector("#pc-pip-video").addEventListener("loadedmetadata", () => visualiser.pip && setPipPlace(visualiser.pip, true));
+  window.addEventListener("resize", positionPip);
   window.addEventListener("hashchange", pairFromAddress);
   return pairFromAddress();
 }

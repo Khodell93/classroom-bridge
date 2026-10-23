@@ -71,7 +71,7 @@ The companion captures and controls the signed-in Windows desktop after the iPad
 - **Opens by itself:** the companion connects as soon as it opens, reconnects after a network drop or sleep, and (after the first run) opens automatically at sign-in, quietly in the background. Closing its window keeps it running — in the system tray on Windows, in the Dock on a Mac. The window has a switch to stop opening at sign-in, and **Quit** to stop completely.
 - **Pair by QR code:** the companion window shows a QR code; on the iPad tap ⚙ → **Scan QR code**. The code is a link (`…/#pair=CODE`), so scanning it with the iPad Camera app also pairs. The QR reader (jsQR, Apache-2.0) is bundled in `public/vendor/` so it works on locked-down networks.
 - **Save PC screen** (⎙ in PC mode): the PC captures its whole screen, including Apple Pencil ink on its overlay, and the photo is added to the current lesson, so it appears in the filmstrip and the lesson PDF.
-- **Camera in a corner** (◳ in PC mode): the live iPad camera appears in a corner of the PC display over a slide; move it between corners, change its size (S/M/L) or hide it from the preview on the iPad.
+- **Camera over the PC screen** (◳ in PC mode): the live iPad camera appears over a slide on the PC display. The box on the iPad sits exactly where it appears on the PC: drag it anywhere (it snaps to the edges), resize it with its corner handle or a pinch, ↻ sends it to the next corner, ✕ hides it. Its place and size are remembered.
 
 ## School IT: Windows installer (MSI)
 

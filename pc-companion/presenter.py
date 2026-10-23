@@ -9,8 +9,9 @@ class CameraPresenter:
     """Full-screen window on the classroom display for the visualiser (live camera or a photo, with annotations).
 
     Commands arrive from the networking thread; only the newest one is kept and it is drawn on the Tk thread:
-    {"type": "show", "image": PIL.Image} | {"type": "pip", "image", "corner"} | {"type": "blank"} | {"type": "hide"}.
-    Picture-in-picture is a small always-on-top window in a corner, over whatever the PC is showing.
+    {"type": "show", "image": PIL.Image} | {"type": "pip", "image", "place"} | {"type": "blank"} |
+    {"type": "hide"}. Picture-in-picture is a small always-on-top window over whatever the PC is showing, wherever the
+    teacher put it on the iPad ("place": its centre as shares of the screen, or a corner from older iPads).
     """
 
     PIP_MARGIN = 24
@@ -62,7 +63,7 @@ class CameraPresenter:
             return
         if kind == "pip":
             self.hide_full()
-            self.show_pip(command["image"], command.get("corner", "br"))
+            self.show_pip(command["image"], command.get("place", "br"))
             return
         self.hide_pip()
         self.show()
@@ -113,7 +114,7 @@ class CameraPresenter:
             for widget in (self.window, self.label):
                 widget.configure(cursor="none")
 
-    def show_pip(self, image, corner):
+    def show_pip(self, image, place):
         if self.pip_window is None:
             self.pip_window = tk.Toplevel(self.root)
             self.pip_window.overrideredirect(True)
@@ -123,8 +124,12 @@ class CameraPresenter:
             self.pip_label.pack(padx=3, pady=3)
         width, height = image.size
         screen_width, screen_height = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        x = self.PIP_MARGIN if corner in ("tl", "bl") else screen_width - width - 6 - self.PIP_MARGIN
-        y = self.PIP_MARGIN if corner in ("tl", "tr") else screen_height - height - 6 - self.PIP_MARGIN
+        if isinstance(place, str):  # a corner
+            x = self.PIP_MARGIN if place in ("tl", "bl") else screen_width - width - 6 - self.PIP_MARGIN
+            y = self.PIP_MARGIN if place in ("tl", "tr") else screen_height - height - 6 - self.PIP_MARGIN
+        else:  # the centre, kept fully on screen
+            x = max(0, min(screen_width - width - 6, round(place[0] * screen_width - (width + 6) / 2)))
+            y = max(0, min(screen_height - height - 6, round(place[1] * screen_height - (height + 6) / 2)))
         geometry = f"{width + 6}x{height + 6}+{x}+{y}"
         if geometry != self.pip_geometry:
             self.pip_window.geometry(geometry)

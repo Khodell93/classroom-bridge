@@ -33,17 +33,17 @@
             <div id="pc-touch-ring" class="pc-touch-ring" hidden></div>
             <div class="pc-actions">
               <button class="glass-button pc-action draw-input-button" title="What draws"><span>✎</span></button>
-              <button id="pc-pip" class="glass-button pc-action" aria-label="Show the iPad camera in a corner of the PC screen" title="Camera in a corner">◳</button>
+              <button id="pc-pip" class="glass-button pc-action" aria-label="Show the iPad camera over the PC screen" title="Camera over the PC screen">◳</button>
               <button id="pc-capture" class="glass-button pc-action" aria-label="Save the PC screen, with your ink, to this lesson" title="Save PC screen to lesson">⎙</button>
               <button id="pc-keyboard" class="glass-button pc-action" aria-label="Open the keyboard to type on the PC" title="Keyboard">⌨</button>
             </div>
-            <div id="pc-pip-panel" class="pc-pip-panel" data-corner="br" hidden>
+            <div id="pc-pip-panel" class="pc-pip-panel" hidden>
               <video id="pc-pip-video" autoplay playsinline muted></video>
               <div class="pc-pip-controls">
-                <button id="pc-pip-corner" aria-label="Move to another corner" title="Move">↻</button>
-                <button id="pc-pip-size" aria-label="Change size" title="Size">M</button>
+                <button id="pc-pip-corner" aria-label="Move to the next corner" title="Next corner">↻</button>
                 <button id="pc-pip-close" aria-label="Hide the camera" title="Hide">✕</button>
               </div>
+              <div class="pc-pip-resize" aria-hidden="true" title="Drag to resize"></div>
             </div>
             <div id="pc-flash" class="vis-flash" hidden></div>
             <div id="pc-placeholder" class="stage-placeholder">
